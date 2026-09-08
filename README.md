@@ -26,7 +26,7 @@ title: Duhnergy!
 
 After the first installation or upgrade, refresh the browser without cache if the card is not immediately available.
 
-## What v0.1.0 does
+## What v0.1.1 does
 
 - Calculates a 24-hour kWh budget from battery energy above the hard reserve, margin-adjusted hourly solar forecast, and configured household daily demand.
 - Schedules a predicted battery shortfall into the cheapest dynamically sized contiguous import-price window.
@@ -73,7 +73,7 @@ This is deliberately a simple, testable first release:
 - Forecasting is deterministic over 24 hours. Daily household demand is not time-shaped, and conversion losses, weather confidence beyond the margin, seasonal behavior, tariffs/fees, and EV energy required are not modeled.
 - Duhnergy does **not** calculate or publish cost savings/totals.
 - Grid-current limiting assumes the mapped net grid power is positive when importing and uses a nominal 230 V single-phase conversion.
-- Solis charge-current tuning is mapped but v0.1.0 relies on existing inverter limits; it only operates the first charge/discharge slots.
+- Solis charge-current tuning is mapped but v0.1.1 relies on existing inverter limits; it only operates the first charge/discharge slots.
 - Price forecast parsing expects `prices: [{start, end, price}]` for import and `forecast: [{start, price}]` for sale. Hourly solar expects parallel `time[]` and `pred_kw[]` attributes; the daily today/tomorrow sensors provide a coarse time-weighted fallback when hourly data is absent.
 - Auto execution intentionally focuses on the action active now. It disables slot-1 grid charging/discharging when idle to avoid stale actions, so conflicting automations must be disabled.
 - Easee action depends on the selected charger entity being linked to an Easee device in Home Assistant's entity registry.
