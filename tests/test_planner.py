@@ -13,6 +13,7 @@ PLANNER = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = PLANNER
 SPEC.loader.exec_module(PLANNER)
 build_plan = PLANNER.build_plan
+normalize_forecast_24h = PLANNER.normalize_forecast_24h
 
 
 class PlannerTests(unittest.TestCase):
@@ -104,6 +105,31 @@ class PlannerTests(unittest.TestCase):
             solar_forecast={"time": [], "pred_kw": []},
         )
         self.assertFalse(plan["timeline"])
+
+    def test_forecast_normalizes_datetime_values_and_preserves_gaps(self):
+        forecast = normalize_forecast_24h(
+            now=self.now + timedelta(minutes=15),
+            solar_forecast={
+                "time": [self.now, self.now + timedelta(hours=2)],
+                "pred_kw": ["1.25", 3],
+            },
+            import_forecast=[
+                {
+                    "start": self.now,
+                    "end": self.now + timedelta(hours=1),
+                    "price": "2.5",
+                }
+            ],
+            sale_forecast=[
+                {"start": self.now + timedelta(hours=1), "price": 0.75}
+            ],
+            current_import_price=2.4,
+            current_sale_price=0.5,
+        )
+        self.assertEqual(len(forecast["timestamps"]), 24)
+        self.assertEqual(forecast["solar_kw"][:3], [1.25, None, 3.0])
+        self.assertEqual(forecast["buy_price"][:2], [2.5, None])
+        self.assertEqual(forecast["sell_price"][:3], [0.5, 0.75, None])
 
 
 if __name__ == "__main__":

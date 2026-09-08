@@ -2,7 +2,7 @@
 
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, VERSION
 
 
 class DuhnergyEntity(CoordinatorEntity):
@@ -18,5 +18,5 @@ class DuhnergyEntity(CoordinatorEntity):
             "name": "Duhnergy!",
             "manufacturer": "Duhnergy",
             "model": "Energy planner",
-            "sw_version": "0.1.1",
+            "sw_version": VERSION,
         }

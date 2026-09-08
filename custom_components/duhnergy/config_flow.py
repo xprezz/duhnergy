@@ -34,6 +34,21 @@ def _schema(current: dict) -> vol.Schema:
         fields[vol.Optional(key, default=current.get(key, default))] = vol.All(
             vol.Coerce(float), vol.Range(min=minimum, max=maximum)
         )
+    fields[
+        vol.Optional("currency", default=current.get("currency", "DKK"))
+    ] = vol.All(str, vol.Length(min=0, max=8))
+    fields[
+        vol.Optional(
+            "battery_power_positive",
+            default=current.get("battery_power_positive", "charge"),
+        )
+    ] = vol.In(["charge", "discharge"])
+    fields[
+        vol.Optional(
+            "grid_power_positive",
+            default=current.get("grid_power_positive", "import"),
+        )
+    ] = vol.In(["import", "export"])
     return vol.Schema(fields)
 
 
