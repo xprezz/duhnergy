@@ -17,3 +17,6 @@ command:
             - ev_grid
             - pause_ev
             - resume_auto
+clear_simulator_log:
+  name: Clear simulator log
+  description: Clear the persisted Shadow-mode decision activity stream.

@@ -12,7 +12,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
-from .const import CARD_URL, DOMAIN, MANUAL_COMMANDS, PLATFORMS
+from .const import CARD_URL, DOMAIN, MANUAL_COMMANDS, PLATFORMS, VERSION
 from .coordinator import DuhnergyCoordinator
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -28,7 +28,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     await hass.http.async_register_static_paths(
         [StaticPathConfig(CARD_URL, str(card_path), False)]
     )
-    add_extra_js_url(hass, f"{CARD_URL}?v=0.1.1")
+    add_extra_js_url(hass, f"{CARD_URL}?v={VERSION}")
 
     async def async_command(call: ServiceCall) -> None:
         entries = hass.config_entries.async_entries(DOMAIN)
@@ -40,12 +40,24 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.services.async_register(
         DOMAIN, "command", async_command, schema=SERVICE_COMMAND_SCHEMA
     )
+
+    async def async_clear_simulator_log(call: ServiceCall) -> None:
+        entries = hass.config_entries.async_entries(DOMAIN)
+        if not entries:
+            raise HomeAssistantError("Duhnergy is not configured")
+        coordinator: DuhnergyCoordinator = hass.data[DOMAIN][entries[0].entry_id]
+        await coordinator.async_clear_simulator_log()
+
+    hass.services.async_register(
+        DOMAIN, "clear_simulator_log", async_clear_simulator_log
+    )
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry) -> bool:
     """Set up Duhnergy from a config entry."""
     coordinator = DuhnergyCoordinator(hass, entry)
+    await coordinator.async_initialize()
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))

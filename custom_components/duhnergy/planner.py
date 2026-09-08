@@ -63,6 +63,8 @@ def normalize_prices(
             price = float(item.get("price"))
         except (TypeError, ValueError):
             continue
+        if not math.isfinite(price):
+            continue
         if start is not None:
             if start.tzinfo is None:
                 start = start.replace(tzinfo=now.tzinfo)
@@ -81,6 +83,67 @@ def normalize_prices(
     return result
 
 
+def normalize_forecast_24h(
+    *,
+    now: datetime,
+    solar_forecast: Any,
+    import_forecast: Any,
+    sale_forecast: Any,
+    current_import_price: Any = None,
+    current_sale_price: Any = None,
+) -> dict[str, list[Any]]:
+    """Return 24 compact, aligned, JSON-safe hourly forecast points."""
+    hour = now.replace(minute=0, second=0, microsecond=0)
+    timestamps = [hour + timedelta(hours=index) for index in range(24)]
+
+    solar_by_hour: dict[datetime, float] = {}
+    if isinstance(solar_forecast, dict):
+        times = solar_forecast.get("time")
+        powers = solar_forecast.get("pred_kw")
+        if isinstance(times, list) and isinstance(powers, list):
+            for stamp, power in zip(times, powers, strict=False):
+                parsed = _dt(stamp)
+                try:
+                    numeric = max(0.0, float(power))
+                except (TypeError, ValueError):
+                    continue
+                if not math.isfinite(numeric):
+                    continue
+                if parsed is None:
+                    continue
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=now.tzinfo)
+                solar_by_hour[parsed.replace(minute=0, second=0, microsecond=0)] = numeric
+
+    imports = normalize_prices(import_forecast, hour)
+    sales = normalize_prices(sale_forecast, hour)
+
+    def price_at(periods: list[PricePeriod], stamp: datetime) -> float | None:
+        period = next(
+            (item for item in periods if item.start <= stamp < item.end), None
+        )
+        return period.price if period else None
+
+    solar = [solar_by_hour.get(stamp) for stamp in timestamps]
+    buy = [price_at(imports, stamp) for stamp in timestamps]
+    sell = [price_at(sales, stamp) for stamp in timestamps]
+    for values, current in ((buy, current_import_price), (sell, current_sale_price)):
+        if values[0] is None:
+            try:
+                current_value = float(current)
+            except (TypeError, ValueError):
+                pass
+            else:
+                if math.isfinite(current_value):
+                    values[0] = current_value
+    return {
+        "timestamps": [stamp.isoformat() for stamp in timestamps],
+        "solar_kw": solar,
+        "buy_price": buy,
+        "sell_price": sell,
+    }
+
+
 def forecast_solar_kwh(raw: Any, margin_percent: float, now: datetime) -> float:
     """Integrate an hourly kW forecast over its future time intervals."""
     if not isinstance(raw, dict):
@@ -95,6 +158,8 @@ def forecast_solar_kwh(raw: Any, margin_percent: float, now: datetime) -> float:
         try:
             numeric = max(0.0, float(power))
         except (TypeError, ValueError):
+            continue
+        if not math.isfinite(numeric):
             continue
         if parsed is not None:
             if parsed.tzinfo is None:

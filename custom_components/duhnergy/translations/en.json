@@ -39,7 +39,10 @@
           "battery_capacity": "Battery capacity (kWh)",
           "solar_forecast_margin": "Solar forecast margin (%)",
           "household_daily_demand": "Household daily demand (kWh)",
-          "grid_current_limit": "Grid current limit (A)"
+          "grid_current_limit": "Grid current limit (A)",
+          "currency": "Currency (for example DKK)",
+          "battery_power_positive": "Positive battery power means",
+          "grid_power_positive": "Positive grid power means"
         }
       }
     },
@@ -86,7 +89,10 @@
           "battery_capacity": "Battery capacity (kWh)",
           "solar_forecast_margin": "Solar forecast margin (%)",
           "household_daily_demand": "Household daily demand (kWh)",
-          "grid_current_limit": "Grid current limit (A)"
+          "grid_current_limit": "Grid current limit (A)",
+          "currency": "Currency (for example DKK)",
+          "battery_power_positive": "Positive battery power means",
+          "grid_power_positive": "Positive grid power means"
         }
       }
     }

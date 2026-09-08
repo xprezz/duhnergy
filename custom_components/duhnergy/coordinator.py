@@ -21,6 +21,9 @@ from .const import (
     effective_config,
 )
 from .planner import build_plan
+from .planner import normalize_forecast_24h
+from .simulator import DuhnergySimulatorLog
+from .stats import DuhnergyStats
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +47,13 @@ class DuhnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_battery_signature: tuple | None = None
         self._last_ev_signature: tuple | None = None
         self._last_ev_sent_at = None
+        self.stats = DuhnergyStats(hass, entry.entry_id)
+        self.simulator_log = DuhnergySimulatorLog(hass, entry.entry_id)
+
+    async def async_initialize(self) -> None:
+        """Load persisted telemetry before the first refresh."""
+        await self.stats.async_load()
+        await self.simulator_log.async_load()
 
     @property
     def config(self) -> dict[str, Any]:
@@ -64,6 +74,14 @@ class DuhnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 sale_forecast=inputs["sale_forecast"],
                 solar_forecast=inputs["solar_forecast"],
             )
+            forecast = normalize_forecast_24h(
+                now=now,
+                solar_forecast=inputs["solar_forecast"],
+                import_forecast=inputs["import_forecast"],
+                sale_forecast=inputs["sale_forecast"],
+                current_import_price=inputs["import_price"],
+                current_sale_price=inputs["sale_price"],
+            )
         except (TypeError, ValueError, KeyError) as err:
             raise UpdateFailed(f"Unable to calculate energy plan: {err}") from err
 
@@ -80,6 +98,21 @@ class DuhnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif mode == MODE_SHADOW:
             status = f"shadow: {plan['current_action']}"
             reason = f"Shadow calculation only: {plan['reason']}"
+            operations, boundary = self._shadow_operations(plan, inputs, config)
+            await self.simulator_log.async_append_shadow(
+                now=now,
+                action=plan["current_action"],
+                reason=plan["reason"],
+                boundary=boundary,
+                operations=operations,
+                context={
+                    "soc_pct": round(inputs["battery_soc"], 1),
+                    "buy_price": round(inputs["import_price"], 3),
+                    "sell_price": round(inputs["sale_price"], 3),
+                    "solar_kw": round(inputs["solar_power_w"] / 1000, 2),
+                    "grid_kw": round(inputs["grid_power_w"] / 1000, 2),
+                },
+            )
         elif self.manual_command:
             status = f"manual: {self.manual_command}"
             reason = "Guarded manual command active until the next planned transition"
@@ -88,6 +121,17 @@ class DuhnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             status = f"auto: {plan['current_action']}"
             await self._async_execute_auto(plan, inputs, config)
 
+        stats = await self.stats.async_update(
+            dt_util.as_local(now),
+            {
+                **inputs,
+                "buy_price": inputs["import_price"],
+                "sell_price": inputs["sale_price"],
+                "currency": inputs["currency"],
+                "battery_power_positive": config["battery_power_positive"],
+                "grid_power_positive": config["grid_power_positive"],
+            },
+        )
         return {
             **inputs,
             "mode": mode,
@@ -98,6 +142,33 @@ class DuhnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.manual_expires_at.isoformat() if self.manual_expires_at else None
             ),
             "plan": plan,
+            "forecast_24h": forecast,
+            "stats": stats,
+            "simulator_log": self.simulator_log.entries,
+            "source_entities": {
+                key: config[key]
+                for key in (
+                    "battery_soc",
+                    "battery_power",
+                    "solar_power",
+                    "house_power",
+                    "grid_power",
+                    "charger_power",
+                    "import_price",
+                    "import_forecast",
+                    "sale_price",
+                    "solar_hourly",
+                    "solar_today",
+                    "solar_tomorrow",
+                    "house_energy",
+                    "grid_import_energy",
+                    "grid_export_energy",
+                )
+            },
+            "conventions": {
+                "battery_power_positive": config["battery_power_positive"],
+                "grid_power_positive": config["grid_power_positive"],
+            },
         }
 
     def _read_inputs(self, config: dict[str, Any]) -> dict[str, Any]:
@@ -117,10 +188,33 @@ class DuhnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             state = self.hass.states.get(config[key])
             return dict(state.attributes) if state is not None else {}
 
+        def cumulative_energy(key: str) -> float | None:
+            state = self.hass.states.get(config[key])
+            if state is None or state.state in {"unknown", "unavailable", ""}:
+                return None
+            try:
+                value = float(state.state)
+            except (TypeError, ValueError):
+                return None
+            unit = str(state.attributes.get("unit_of_measurement", "kWh")).lower()
+            if unit == "wh":
+                return value / 1000
+            if unit == "mwh":
+                return value * 1000
+            return value
+
         charger = self.hass.states.get(config["charger_status"])
         import_attrs = attributes("import_forecast")
+        import_price_attrs = attributes("import_price")
         sale_attrs = attributes("sale_price")
         solar_attrs = attributes("solar_hourly")
+        configured_currency = str(config.get("currency", "")).strip()
+        currency = configured_currency or str(
+            import_price_attrs.get("currency")
+            or import_attrs.get("currency")
+            or getattr(self.hass.config, "currency", None)
+            or "DKK"
+        )
         return {
             "battery_soc": numeric("battery_soc", required=True),
             "battery_power_w": numeric("battery_power"),
@@ -132,14 +226,126 @@ class DuhnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "import_price": numeric("import_price"),
             "sale_price": numeric("sale_price"),
             "import_forecast": import_attrs.get("prices", []),
-            "sale_forecast": sale_attrs.get("forecast", []),
+            "sale_forecast": sale_attrs.get(
+                "forecast", sale_attrs.get("prices", [])
+            ),
             "solar_forecast": {
                 "time": solar_attrs.get("time", []),
                 "pred_kw": solar_attrs.get("pred_kw", []),
                 "today_kwh": numeric("solar_today"),
                 "tomorrow_kwh": numeric("solar_tomorrow"),
             },
+            "house_energy_kwh": cumulative_energy("house_energy"),
+            "grid_import_energy_kwh": cumulative_energy("grid_import_energy"),
+            "grid_export_energy_kwh": cumulative_energy("grid_export_energy"),
+            "currency": currency,
         }
+
+    async def async_clear_simulator_log(self) -> None:
+        """Clear the persisted simulator activity stream."""
+        await self.simulator_log.async_clear()
+        await self.async_request_refresh()
+
+    async def async_shutdown(self) -> None:
+        """Flush persistent telemetry before unload."""
+        await self.stats.async_save()
+        await super().async_shutdown()
+
+    def _shadow_operations(
+        self, plan: dict[str, Any], inputs: dict[str, Any], config: dict[str, Any]
+    ) -> tuple[list[str], str | None]:
+        """Describe the exact high-level calls Auto would request."""
+        action = plan["current_action"]
+        active = self._active_plan_item(plan)
+        operations = [
+            (
+                f"number.set_value {config['backup_soc_control']}="
+                f"{float(config['hard_backup_reserve']):g}"
+            ),
+            f"homeassistant.turn_on {config['reserve_mode']}",
+        ]
+        boundary = None
+        if active:
+            boundary = f"{active['start']}|{active['end']}"
+        elif plan["timeline"]:
+            boundary = plan["timeline"][0]["start"]
+        if action == "battery_grid_charge" and active:
+            operations.extend(
+                [
+                    f"time.set_value {config['charge_start']}={self._time_value(active['start'])}",
+                    f"time.set_value {config['charge_end']}={self._time_value(active['end'])}",
+                    f"homeassistant.turn_off {config['discharge_slot_enabled']}",
+                    f"homeassistant.turn_on {config['allow_grid_charge']}",
+                    f"homeassistant.turn_on {config['charge_slot_enabled']}",
+                ]
+            )
+        elif (
+            action == "battery_export"
+            and active
+            and inputs["battery_soc"] > config["export_stop_soc"]
+        ):
+            operations.extend(
+                [
+                    f"time.set_value {config['discharge_start']}={self._time_value(active['start'])}",
+                    f"time.set_value {config['discharge_end']}={self._time_value(active['end'])}",
+                    f"homeassistant.turn_off {config['charge_slot_enabled']}",
+                    f"homeassistant.turn_off {config['allow_grid_charge']}",
+                    f"homeassistant.turn_on {config['discharge_slot_enabled']}",
+                ]
+            )
+        else:
+            operations.extend(
+                [
+                    f"homeassistant.turn_off {config['charge_slot_enabled']}",
+                    f"homeassistant.turn_off {config['discharge_slot_enabled']}",
+                    f"homeassistant.turn_off {config['allow_grid_charge']}",
+                ]
+            )
+        operations.append(self._shadow_ev_operation(plan, inputs, config))
+        return operations, boundary
+
+    @staticmethod
+    def _active_plan_item(plan: dict[str, Any]) -> dict[str, Any] | None:
+        """Find the active item with timezone-aware datetime comparisons."""
+        generated_at = dt_util.parse_datetime(plan["generated_at"])
+        if generated_at is None:
+            return None
+        for item in plan["timeline"]:
+            start = dt_util.parse_datetime(item["start"])
+            end = dt_util.parse_datetime(item["end"])
+            if (
+                item["action"] == plan["current_action"]
+                and start is not None
+                and end is not None
+                and start <= generated_at < end
+            ):
+                return item
+        return None
+
+    def _shadow_ev_operation(
+        self, plan: dict[str, Any], inputs: dict[str, Any], config: dict[str, Any]
+    ) -> str:
+        """Describe the Easee request implied by the current plan."""
+        if plan["current_action"] in {"battery_grid_charge", "battery_export"}:
+            return "easee.action_command pause"
+        excess_w = max(0.0, inputs["solar_power_w"] - inputs["house_power_w"])
+        if excess_w >= 1380:
+            current = min(self._available_ev_current(inputs, config), int(excess_w / 230))
+        elif (
+            plan["surplus_kwh"] > 0
+            and inputs["battery_soc"] > config["ev_battery_stop_soc"]
+        ):
+            current = min(6, self._available_ev_current(inputs, config))
+        elif plan["current_action"] == "ev_grid_charge":
+            current = self._available_ev_current(inputs, config)
+        else:
+            current = 0
+        if current < 6:
+            return "easee.action_command pause"
+        return (
+            f"easee.set_charger_dynamic_limit current={current}A ttl=10m; "
+            "easee.action_command resume"
+        )
 
     async def async_manual_command(self, command: str) -> None:
         """Activate a guarded command or immediately resume Auto."""
@@ -173,15 +379,7 @@ class DuhnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self, plan: dict[str, Any], inputs: dict[str, Any], config: dict[str, Any]
     ) -> None:
         action = plan["current_action"]
-        active = next(
-            (
-                item
-                for item in plan["timeline"]
-                if item["action"] == action
-                and item["start"] <= plan["generated_at"] < item["end"]
-            ),
-            None,
-        )
+        active = self._active_plan_item(plan)
         await self._async_set_backup_reserve(config)
         if action == "battery_grid_charge" and active:
             await self._async_set_battery_action(

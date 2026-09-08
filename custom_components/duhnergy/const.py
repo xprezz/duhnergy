@@ -89,6 +89,12 @@ SETTING_DEFAULTS = {
     "grid_current_limit": 25.0,
 }
 
+OPTION_DEFAULTS = {
+    "currency": "DKK",
+    "battery_power_positive": "charge",
+    "grid_power_positive": "import",
+}
+
 SETTING_RANGES = {
     "hard_backup_reserve": (5.0, 95.0, 1.0, "%"),
     "export_stop_soc": (5.0, 100.0, 1.0, "%"),
@@ -101,8 +107,15 @@ SETTING_RANGES = {
 
 UPDATE_INTERVAL_SECONDS = 60
 CARD_URL = "/duhnergy/duhnergy-card.js"
+VERSION = "0.2.0"
 
 
 def effective_config(data: dict, options: dict) -> dict:
     """Return defaults overlaid with config-entry data and options."""
-    return {**ENTITY_DEFAULTS, **SETTING_DEFAULTS, **data, **options}
+    return {
+        **ENTITY_DEFAULTS,
+        **SETTING_DEFAULTS,
+        **OPTION_DEFAULTS,
+        **data,
+        **options,
+    }
