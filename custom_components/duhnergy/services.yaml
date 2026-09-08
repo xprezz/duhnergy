@@ -1,0 +1,19 @@
+command:
+  name: Guarded command
+  description: Run a manual command until the next planned state transition, or resume Auto.
+  fields:
+    command:
+      name: Command
+      description: The command to run.
+      required: true
+      selector:
+        select:
+          options:
+            - charge_battery_now
+            - export_now
+            - hold_battery
+            - ev_solar
+            - ev_battery
+            - ev_grid
+            - pause_ev
+            - resume_auto
