@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
@@ -23,11 +24,11 @@ SERVICE_COMMAND_SCHEMA = vol.Schema(
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up static assets and integration-wide services."""
-    static_path = Path(__file__).parent / "static"
-    hass.http.register_static_path(
-        CARD_URL.rsplit("/", 1)[0], str(static_path), cache_headers=False
+    card_path = Path(__file__).parent / "static" / "duhnergy-card.js"
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(CARD_URL, str(card_path), False)]
     )
-    add_extra_js_url(hass, f"{CARD_URL}?v=0.1.0")
+    add_extra_js_url(hass, f"{CARD_URL}?v=0.1.1")
 
     async def async_command(call: ServiceCall) -> None:
         entries = hass.config_entries.async_entries(DOMAIN)

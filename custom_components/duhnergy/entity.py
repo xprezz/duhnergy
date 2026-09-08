@@ -18,5 +18,5 @@ class DuhnergyEntity(CoordinatorEntity):
             "name": "Duhnergy!",
             "manufacturer": "Duhnergy",
             "model": "Energy planner",
-            "sw_version": "0.1.0",
+            "sw_version": "0.1.1",
         }
