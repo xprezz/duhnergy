@@ -1,0 +1,16 @@
+{
+  "domain": "duhnergy",
+  "name": "Duhnergy!",
+  "codeowners": [
+    "@xprezz"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "http"
+  ],
+  "documentation": "https://github.com/xprezz/duhnergy",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/xprezz/duhnergy/issues",
+  "version": "0.1.0"
+}

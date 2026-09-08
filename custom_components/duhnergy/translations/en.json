@@ -1,0 +1,94 @@
+{
+  "title": "Duhnergy!",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Duhnergy!",
+        "description": "Review the prefilled Solis, Easee, price, and forecast entities. Duhnergy starts in Shadow mode.",
+        "data": {
+          "battery_soc": "Battery SOC",
+          "battery_power": "Battery power",
+          "solar_power": "Solar power",
+          "house_power": "House power",
+          "grid_power": "Grid net power",
+          "house_energy": "House cumulative energy",
+          "grid_import_energy": "Grid import cumulative energy",
+          "grid_export_energy": "Grid export cumulative energy",
+          "import_price": "Current import price",
+          "import_forecast": "Import price forecast",
+          "sale_price": "Sale price and forecast",
+          "solar_hourly": "Hourly solar forecast",
+          "solar_today": "Today's solar forecast",
+          "solar_tomorrow": "Tomorrow's solar forecast",
+          "charger_status": "Easee charger status",
+          "charger_power": "Easee charger power",
+          "allow_grid_charge": "Allow grid charge",
+          "charge_slot_enabled": "Charge slot 1 enabled",
+          "discharge_slot_enabled": "Discharge slot 1 enabled",
+          "reserve_mode": "Reserve battery mode",
+          "backup_soc_control": "Backup SOC control",
+          "max_charge_current": "Maximum battery charge current",
+          "charge_start": "Charge slot 1 start",
+          "charge_end": "Charge slot 1 end",
+          "discharge_start": "Discharge slot 1 start",
+          "discharge_end": "Discharge slot 1 end",
+          "mode": "Mode",
+          "hard_backup_reserve": "Hard backup reserve (%)",
+          "export_stop_soc": "Export stop SOC (%)",
+          "ev_battery_stop_soc": "EV battery stop SOC (%)",
+          "battery_capacity": "Battery capacity (kWh)",
+          "solar_forecast_margin": "Solar forecast margin (%)",
+          "household_daily_demand": "Household daily demand (kWh)",
+          "grid_current_limit": "Grid current limit (A)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Duhnergy is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Duhnergy options",
+        "description": "Every source, control mapping, operating mode, and planning setting can be changed here.",
+        "data": {
+          "battery_soc": "Battery SOC",
+          "battery_power": "Battery power",
+          "solar_power": "Solar power",
+          "house_power": "House power",
+          "grid_power": "Grid net power",
+          "house_energy": "House cumulative energy",
+          "grid_import_energy": "Grid import cumulative energy",
+          "grid_export_energy": "Grid export cumulative energy",
+          "import_price": "Current import price",
+          "import_forecast": "Import price forecast",
+          "sale_price": "Sale price and forecast",
+          "solar_hourly": "Hourly solar forecast",
+          "solar_today": "Today's solar forecast",
+          "solar_tomorrow": "Tomorrow's solar forecast",
+          "charger_status": "Easee charger status",
+          "charger_power": "Easee charger power",
+          "allow_grid_charge": "Allow grid charge",
+          "charge_slot_enabled": "Charge slot 1 enabled",
+          "discharge_slot_enabled": "Discharge slot 1 enabled",
+          "reserve_mode": "Reserve battery mode",
+          "backup_soc_control": "Backup SOC control",
+          "max_charge_current": "Maximum battery charge current",
+          "charge_start": "Charge slot 1 start",
+          "charge_end": "Charge slot 1 end",
+          "discharge_start": "Discharge slot 1 start",
+          "discharge_end": "Discharge slot 1 end",
+          "mode": "Mode",
+          "hard_backup_reserve": "Hard backup reserve (%)",
+          "export_stop_soc": "Export stop SOC (%)",
+          "ev_battery_stop_soc": "EV battery stop SOC (%)",
+          "battery_capacity": "Battery capacity (kWh)",
+          "solar_forecast_margin": "Solar forecast margin (%)",
+          "household_daily_demand": "Household daily demand (kWh)",
+          "grid_current_limit": "Grid current limit (A)"
+        }
+      }
+    }
+  }
+}
