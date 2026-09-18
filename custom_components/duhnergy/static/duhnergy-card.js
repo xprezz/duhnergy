@@ -507,10 +507,10 @@ class DuhnergyCard extends HTMLElement {
     </label>`;
   }
 
-  _slider(label, entityId, detail = "") {
+  _slider(label, entityId, detail = "", unitOverride = "") {
     const state = this._state(entityId);
     const value = state?.state || "0";
-    const unit = state?.attributes?.unit_of_measurement || "";
+    const unit = unitOverride || state?.attributes?.unit_of_measurement || "";
     return `<label class="slider-row">
       <span data-entity="${entityId}" role="button" tabindex="0"><strong>${this._escape(
         label,
@@ -837,8 +837,8 @@ class DuhnergyCard extends HTMLElement {
                   ${this._slider("Export stop SOC", "number.duhnergy_export_stop_soc", "Stop battery export at this level")}
                   ${this._slider("EV battery stop SOC", "number.duhnergy_ev_battery_stop_soc", "Protect stored energy during EV charging")}
                   ${this._slider("Solar forecast margin", "number.duhnergy_solar_forecast_margin", "Discount forecast uncertainty")}
-                  ${this._slider("Daily household demand", "number.duhnergy_household_daily_demand", "Expected consumption over 24 hours")}
-                  ${this._slider("Grid current limit", "number.duhnergy_grid_current_limit", "Shared import limit for EV charging")}
+                  ${this._slider("Daily household demand", "number.duhnergy_household_daily_demand", "Expected consumption over 24 hours", "kWh")}
+                  ${this._slider("Grid current limit", "number.duhnergy_grid_current_limit", "Shared import limit for EV charging", "A")}
                 </div>
               </section>
               <section class="neo-panel log-panel">
