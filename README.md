@@ -30,7 +30,7 @@ title: Duhnergy!
 
 The v0.2.0 card is optimized for iPad landscape and other widescreen dashboards. It collapses to a single-column layout on narrow screens and includes:
 
-- Animated live flow among Solar, House, Battery, Grid, and EV.
+- Live directional power flow among Solar, House, Battery, Grid, and EV.
 - A dependency-free SVG 24-hour chart with solar area, buy/sell price lines, dual scales, forecast gaps, tooltips, and a current-time marker.
 - The calculated action timeline, persistent period stats, Shadow activity stream, guarded controls, and planning settings.
 - Native Home Assistant more-info dialogs for every displayed entity-backed metric and node, including keyboard activation with Enter or Space.
