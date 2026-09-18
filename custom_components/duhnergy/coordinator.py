@@ -151,6 +151,12 @@ class DuhnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "battery_soc",
                     "battery_power",
                     "solar_power",
+                    "solar_surface_1",
+                    "solar_surface_2",
+                    "solar_surface_3",
+                    "solar_surface_4",
+                    "solar_today_energy",
+                    "weather",
                     "house_power",
                     "grid_power",
                     "charger_power",
@@ -203,11 +209,44 @@ class DuhnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return value * 1000
             return value
 
+        def power_w(key: str) -> float | None:
+            state = self.hass.states.get(config[key])
+            if state is None or state.state in {"unknown", "unavailable", ""}:
+                return None
+            try:
+                value = float(state.state)
+            except (TypeError, ValueError):
+                return None
+            unit = str(state.attributes.get("unit_of_measurement", "W")).lower()
+            if unit == "kw":
+                return value * 1000
+            if unit == "mw":
+                return value * 1_000_000
+            return value
+
         charger = self.hass.states.get(config["charger_status"])
         import_attrs = attributes("import_forecast")
         import_price_attrs = attributes("import_price")
         sale_attrs = attributes("sale_price")
         solar_attrs = attributes("solar_hourly")
+        weather_state = self.hass.states.get(config["weather"])
+        weather_attrs = dict(weather_state.attributes) if weather_state else {}
+        solar_surfaces = []
+        surface_count = max(1, min(4, int(config["solar_surface_count"])))
+        for index in range(1, surface_count + 1):
+            key = f"solar_surface_{index}"
+            state = self.hass.states.get(config[key])
+            surface_power = power_w(key)
+            if state is None or surface_power is None:
+                continue
+            solar_surfaces.append(
+                {
+                    "entity_id": config[key],
+                    "name": state.attributes.get("friendly_name")
+                    or f"Solar surface {index}",
+                    "power_w": round(surface_power, 1),
+                }
+            )
         configured_currency = str(config.get("currency", "")).strip()
         currency = configured_currency or str(
             import_price_attrs.get("currency")
@@ -238,6 +277,17 @@ class DuhnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "house_energy_kwh": cumulative_energy("house_energy"),
             "grid_import_energy_kwh": cumulative_energy("grid_import_energy"),
             "grid_export_energy_kwh": cumulative_energy("grid_export_energy"),
+            "solar_today_energy_kwh": cumulative_energy("solar_today_energy"),
+            "solar_surfaces": solar_surfaces,
+            "weather": {
+                "entity_id": config["weather"],
+                "condition": weather_state.state if weather_state else "unavailable",
+                "temperature": weather_attrs.get("temperature"),
+                "temperature_unit": weather_attrs.get("temperature_unit"),
+                "humidity": weather_attrs.get("humidity"),
+                "wind_speed": weather_attrs.get("wind_speed"),
+                "wind_speed_unit": weather_attrs.get("wind_speed_unit"),
+            },
             "currency": currency,
         }
 

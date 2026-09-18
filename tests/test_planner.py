@@ -106,7 +106,7 @@ class PlannerTests(unittest.TestCase):
         )
         self.assertFalse(plan["timeline"])
 
-    def test_forecast_normalizes_datetime_values_and_preserves_gaps(self):
+    def test_forecast_normalises_datetime_values_and_preserves_gaps(self):
         forecast = normalize_forecast_24h(
             now=self.now + timedelta(minutes=15),
             solar_forecast={

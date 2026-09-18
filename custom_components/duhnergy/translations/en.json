@@ -9,6 +9,12 @@
           "battery_soc": "Battery SOC",
           "battery_power": "Battery power",
           "solar_power": "Solar power",
+          "solar_surface_1": "Solar surface 1 power",
+          "solar_surface_2": "Solar surface 2 power",
+          "solar_surface_3": "Solar surface 3 power",
+          "solar_surface_4": "Solar surface 4 power",
+          "solar_today_energy": "Solar production today",
+          "weather": "Current weather",
           "house_power": "House power",
           "grid_power": "Grid net power",
           "house_energy": "House cumulative energy",
@@ -41,6 +47,7 @@
           "household_daily_demand": "Household daily demand (kWh)",
           "grid_current_limit": "Grid current limit (A)",
           "currency": "Currency (for example DKK)",
+          "solar_surface_count": "Number of solar surfaces",
           "battery_power_positive": "Positive battery power means",
           "grid_power_positive": "Positive grid power means"
         }
@@ -59,6 +66,12 @@
           "battery_soc": "Battery SOC",
           "battery_power": "Battery power",
           "solar_power": "Solar power",
+          "solar_surface_1": "Solar surface 1 power",
+          "solar_surface_2": "Solar surface 2 power",
+          "solar_surface_3": "Solar surface 3 power",
+          "solar_surface_4": "Solar surface 4 power",
+          "solar_today_energy": "Solar production today",
+          "weather": "Current weather",
           "house_power": "House power",
           "grid_power": "Grid net power",
           "house_energy": "House cumulative energy",
@@ -91,6 +104,7 @@
           "household_daily_demand": "Household daily demand (kWh)",
           "grid_current_limit": "Grid current limit (A)",
           "currency": "Currency (for example DKK)",
+          "solar_surface_count": "Number of solar surfaces",
           "battery_power_positive": "Positive battery power means",
           "grid_power_positive": "Positive grid power means"
         }

@@ -24,6 +24,12 @@ ENTITY_DEFAULTS = {
     "battery_soc": "sensor.solis_battery_soc",
     "battery_power": "sensor.solis_battery_power",
     "solar_power": "sensor.solis_total_pv_power",
+    "solar_surface_1": "sensor.solis_pv_power_1",
+    "solar_surface_2": "sensor.solis_pv_power_2",
+    "solar_surface_3": "sensor.solis_pv_power_3",
+    "solar_surface_4": "sensor.solis_pv_power_4",
+    "solar_today_energy": "sensor.solis_pv_today_energy_generation",
+    "weather": "weather.forecast_home",
     "house_power": "sensor.solis_household_load_power",
     "grid_power": "sensor.solis_grid_power_net",
     "house_energy": "sensor.solis_household_load_total_energy",
@@ -53,6 +59,12 @@ ENTITY_LABELS = {
     "battery_soc": "Battery SOC",
     "battery_power": "Battery power",
     "solar_power": "Solar power",
+    "solar_surface_1": "Solar surface 1 power",
+    "solar_surface_2": "Solar surface 2 power",
+    "solar_surface_3": "Solar surface 3 power",
+    "solar_surface_4": "Solar surface 4 power",
+    "solar_today_energy": "Solar production today",
+    "weather": "Current weather",
     "house_power": "House power",
     "grid_power": "Grid net power",
     "house_energy": "House cumulative energy",
@@ -93,6 +105,7 @@ OPTION_DEFAULTS = {
     "currency": "DKK",
     "battery_power_positive": "charge",
     "grid_power_positive": "import",
+    "solar_surface_count": 4,
 }
 
 SETTING_RANGES = {

@@ -360,6 +360,6 @@ def build_plan(
         "timeline": [item.as_dict() for item in timeline],
         "limitations": (
             "24-hour deterministic forecast; daily demand is not time-shaped and "
-            "conversion losses, weather uncertainty, and EV energy need are not modeled."
+            "conversion losses, weather uncertainty, and EV energy need are not modelled."
         ),
     }
