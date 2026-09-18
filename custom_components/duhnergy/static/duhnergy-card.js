@@ -140,7 +140,7 @@ class DuhnergyCard extends HTMLElement {
     </div>`;
   }
 
-  _powerTopology(planAttributes, forecastAttributes) {
+  _powerTopology(planAttributes, forecastAttributes, statsAttributes) {
     const sources = planAttributes?.source_entities || {};
     const conventions = planAttributes?.conventions || {};
     const solar = this._number("sensor.duhnergy_solar_power");
@@ -158,6 +158,49 @@ class DuhnergyCard extends HTMLElement {
       Math.abs(battery) < 20 ? "Standing by" : batteryCharging ? "Charging" : "Discharging";
     const flowPower = Math.max(solar, house, Math.abs(grid), Math.abs(battery), ev) / 1000;
     const currency = forecastAttributes?.currency || "DKK";
+    const today = statsAttributes?.periods?.today || {};
+    const todayValue = (key) => {
+      const value = Number(today[key]);
+      return Number.isFinite(value) ? Math.max(0, value) : 0;
+    };
+    const importedToday = todayValue("grid_import_kwh");
+    const importCostToday = todayValue("import_cost");
+    const exportedToday = todayValue("grid_export_kwh");
+    const exportRevenueToday = todayValue("export_revenue");
+    const householdToday = todayValue("household_consumption_kwh");
+    const solarProducedToday = todayValue("solar_production_kwh");
+    const batteryChargedToday = todayValue("battery_charged_kwh");
+    const batteryDischargedToday = todayValue("battery_discharged_kwh");
+    const evToday = todayValue("ev_charged_kwh");
+    const estimatedSolarToHouse = Math.min(
+      householdToday,
+      Math.max(0, solarProducedToday - exportedToday - batteryChargedToday),
+    );
+    const estimatedBatteryToHouse = Math.min(
+      Math.max(0, householdToday - estimatedSolarToHouse),
+      batteryDischargedToday,
+    );
+    const estimatedGridToHouse = Math.min(
+      Math.max(0, householdToday - estimatedSolarToHouse - estimatedBatteryToHouse),
+      importedToday,
+    );
+    const estimatedOtherToHouse = Math.max(
+      0,
+      householdToday - estimatedSolarToHouse - estimatedBatteryToHouse - estimatedGridToHouse,
+    );
+    const currentSupply = [
+      ["Solar", Math.max(0, solar - (gridImporting ? 0 : Math.abs(grid)) - (batteryCharging ? Math.abs(battery) : 0))],
+      ["Battery", batteryCharging ? 0 : Math.abs(battery)],
+      ["Grid", gridImporting ? Math.abs(grid) : 0],
+    ].filter(([, value]) => value > 20);
+    const currentSupplyTotal = currentSupply.reduce((total, [, value]) => total + value, 0);
+    const supplySummary = currentSupply.length
+      ? currentSupply
+          .map(([name, value]) => `${name} ${Math.round((value / currentSupplyTotal) * 100)}%`)
+          .join(" / ")
+      : "Source unavailable";
+    const supplyLabel =
+      currentSupply.length === 1 ? currentSupply[0][0] : currentSupply.length > 1 ? "Mix" : "Unknown";
     const solarToday = sources.solar_today;
     const solarTodayEnergy = sources.solar_today_energy;
     const weather = planAttributes?.weather || {};
@@ -185,24 +228,27 @@ class DuhnergyCard extends HTMLElement {
       ["grid-path", Math.abs(grid) > 20, !gridImporting],
       ["home-path", house > 20, false],
       ["battery-path", Math.abs(battery) > 20, batteryCharging],
+      ["ev-path", ev > 20, false],
     ];
 
     return `<div class="topology">
-      <svg class="topology-lines" viewBox="0 0 1000 590" preserveAspectRatio="none" aria-hidden="true">
+      <svg class="topology-lines" viewBox="0 0 1000 680" preserveAspectRatio="none" aria-hidden="true">
         ${solarPaths}
-        <path class="base-path" d="M210 326 C300 326 350 310 405 310"></path>
-        <path class="base-path" d="M595 310 C655 310 710 326 790 326"></path>
-        <path class="base-path" d="M500 394 C500 430 500 450 500 478"></path>
+        <path class="base-path" d="M260 350 C325 350 365 340 410 340"></path>
+        <path class="base-path" d="M590 340 C635 340 675 350 740 350"></path>
+        <path class="base-path" d="M460 430 C400 490 300 535 165 565"></path>
+        <path class="base-path" d="M540 430 C600 490 700 535 835 565"></path>
         ${paths
           .map(([className, active, reverse]) => {
             const definitions = {
               "grid-path": reverse
-                ? "M405 310 C350 310 300 326 210 326"
-                : "M210 326 C300 326 350 310 405 310",
-              "home-path": "M595 310 C655 310 710 326 790 326",
+                ? "M410 340 C365 340 325 350 260 350"
+                : "M260 350 C325 350 365 340 410 340",
+              "home-path": "M590 340 C635 340 675 350 740 350",
               "battery-path": reverse
-                ? "M500 478 C500 450 500 430 500 394"
-                : "M500 394 C500 430 500 450 500 478",
+                ? "M165 565 C300 535 400 490 460 430"
+                : "M460 430 C400 490 300 535 165 565",
+              "ev-path": "M540 430 C600 490 700 535 835 565",
             };
             return `<path class="active-path ${className} ${active ? "is-active" : ""}" d="${definitions[className]}"></path>`;
           })
@@ -275,30 +321,51 @@ class DuhnergyCard extends HTMLElement {
         </div>
       </div>
 
-      <div class="topology-node grid-node ${Math.abs(grid) > 20 ? "active-grid" : ""}" data-entity="sensor.duhnergy_grid_net_power" role="button" tabindex="0">
-        <div>
-          <span>Public power grid</span>
-          <strong>${gridDirection} ${this._format(Math.abs(grid) / 1000, 1)} kW</strong>
-          <em>${this._format(forecastAttributes?.current_buy_price)} ${this._escape(currency)}/kWh buy</em>
+      <div class="topology-node detail-node grid-node ${Math.abs(grid) > 20 ? "active-grid" : ""}" data-entity="sensor.duhnergy_grid_net_power" role="button" tabindex="0">
+        <div class="node-heading">
+          <div><span>Grid</span><strong>${gridDirection}</strong></div>
+          <div class="icon-orb"><ha-icon icon="mdi:transmission-tower"></ha-icon></div>
         </div>
-        <div class="icon-orb"><ha-icon icon="mdi:transmission-tower"></ha-icon></div>
+        <div class="node-pills">
+          <div class="node-pill live"><span>Current status</span><strong>${gridDirection} ${this._format(Math.abs(grid) / 1000, 1)} kW</strong></div>
+          <div class="node-pill" data-entity="sensor.duhnergy_lifetime_grid_import" role="button" tabindex="0"><span>Imported today</span><strong>${this._format(importedToday, 1)} kWh</strong><small>${this._format(importCostToday, 2)} ${this._escape(currency)} cost</small></div>
+          <div class="node-pill earning" data-entity="sensor.duhnergy_lifetime_grid_export" role="button" tabindex="0"><span>Exported today</span><strong>${this._format(exportedToday, 1)} kWh</strong><small>${this._format(exportRevenueToday, 2)} ${this._escape(currency)} earned</small></div>
+        </div>
       </div>
 
       <div class="topology-node core-node" data-entity="${this._escape(this.config.status_entity)}" role="button" tabindex="0">
-        <span>Duhnergy energy manager</span>
-        <div class="core-icon"><ha-icon icon="mdi:lightning-bolt"></ha-icon></div>
+        <span>Smart Brain</span>
+        <div class="core-icon brain-icon">
+          <i class="electron electron-one"></i><i class="electron electron-two"></i>
+          <i class="electron electron-three"></i><i class="electron electron-four"></i>
+          <ha-icon icon="mdi:brain"></ha-icon>
+        </div>
         <strong>${this._format(flowPower, 1)} kW flow</strong>
         <em>${this._escape(this._label(this._value(this.config.plan_entity, "idle")))}</em>
       </div>
 
-      <div class="topology-node home-node" data-entity="sensor.duhnergy_house_power" role="button" tabindex="0">
-        <div class="home-summary">
-          <div><span>Household load</span><strong>${this._format(house / 1000, 1)} kW</strong></div>
+      <div class="topology-node detail-node home-node" data-entity="sensor.duhnergy_house_power" role="button" tabindex="0">
+        <div class="node-heading">
+          <div><span>Household</span><strong>${this._format(house / 1000, 1)} kW now</strong></div>
           <div class="icon-orb"><ha-icon icon="mdi:home-lightning-bolt"></ha-icon></div>
         </div>
-        <div class="ev-subnode" data-entity="sensor.duhnergy_ev_power" role="button" tabindex="0">
+        <div class="node-pills">
+          <div class="node-pill live"><span>Current supply</span><strong>${this._escape(supplyLabel)}</strong><small>${this._escape(supplySummary)} estimated</small></div>
+          <div class="node-pill" data-entity="sensor.duhnergy_lifetime_household_consumption" role="button" tabindex="0"><span>Consumed today</span><strong>${this._format(householdToday, 1)} kWh</strong></div>
+          <div class="source-pills" aria-label="Estimated household consumption by source today">
+            <span><b>Solar</b>${this._format(estimatedSolarToHouse, 1)} kWh</span>
+            <span><b>Battery</b>${this._format(estimatedBatteryToHouse, 1)} kWh</span>
+            <span><b>Grid</b>${this._format(estimatedGridToHouse, 1)} kWh</span>
+            ${estimatedOtherToHouse > 0.05 ? `<span><b>Other</b>${this._format(estimatedOtherToHouse, 1)} kWh</span>` : ""}
+          </div>
+          <small class="estimate-note">Today by source is estimated from measured energy balances.</small>
+        </div>
+      </div>
+
+      <div class="topology-node ev-node" data-entity="sensor.duhnergy_ev_power" role="button" tabindex="0">
+        <div class="ev-summary">
           <ha-icon icon="mdi:car-electric"></ha-icon>
-          <div><span>EV charger</span><strong>${ev > 20 ? `${this._format(ev / 1000, 1)} kW charging` : "Idle"}</strong></div>
+          <div><span>EV charger</span><strong>${ev > 20 ? `${this._format(ev / 1000, 1)} kW charging` : "Idle"}</strong><small>${this._format(evToday, 1)} kWh charged today</small></div>
         </div>
       </div>
 
@@ -596,26 +663,26 @@ class DuhnergyCard extends HTMLElement {
         .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
         .brand .icon-orb { width: 44px; height: 44px; color: var(--cyan); }
         .brand h2 { margin: 0; font-size: 21px; letter-spacing: .4px; }
-        .brand p { margin: 3px 0 0; color: var(--muted); font-size: 11px; }
+        .brand p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
         .header-status { display: flex; align-items: stretch; gap: 12px; }
         .status-box, .mode-box { display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 8px 13px; border-radius: 13px; background: var(--petroleum); box-shadow: var(--shadow-inset); }
         .status-box ha-icon { color: var(--cyan); --mdc-icon-size: 17px; }
-        .status-box span, .mode-box label { display: block; color: var(--muted); font-size: 8px; letter-spacing: .8px; text-transform: uppercase; }
-        .status-box strong { display: block; margin-top: 2px; font-size: 12px; text-transform: capitalize; }
-        .live-badge { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border-radius: 8px; color: var(--green); background: var(--green-soft); font-size: 9px; font-weight: 800; }
+        .status-box span, .mode-box label { display: block; color: var(--muted); font-size: 11px; letter-spacing: .8px; text-transform: uppercase; }
+        .status-box strong { display: block; margin-top: 2px; font-size: 14px; text-transform: capitalize; }
+        .live-badge { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 8px; color: var(--green); background: var(--green-soft); font-size: 11px; font-weight: 800; }
         .live-badge i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
         .off .live-badge { color: var(--muted); background: rgba(145, 165, 175, .1); }
-        .mode-box select { min-width: 105px; height: 32px; padding: 4px 26px 4px 9px; border: 0; border-radius: 8px; color: var(--cyan); background: var(--petroleum-dark); box-shadow: var(--shadow-inset); cursor: pointer; font-size: 11px; font-weight: 700; text-transform: capitalize; }
+        .mode-box select { min-width: 105px; height: 38px; padding: 5px 26px 5px 9px; border: 0; border-radius: 8px; color: var(--cyan); background: var(--petroleum-dark); box-shadow: var(--shadow-inset); cursor: pointer; font-size: 13px; font-weight: 700; text-transform: capitalize; }
         .mode-box option { color: var(--text); background: var(--petroleum); }
         .main-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(310px, 1fr); gap: 22px; }
-        .topology-panel { min-height: 590px; padding: 20px; overflow: hidden; }
+        .topology-panel { min-height: 720px; padding: 22px; overflow: hidden; }
         .panel-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 16px; }
-        .title-copy h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; letter-spacing: .5px; text-transform: uppercase; }
+        .title-copy h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; letter-spacing: .5px; text-transform: uppercase; }
         .title-copy h3 ha-icon { color: var(--cyan); --mdc-icon-size: 17px; }
-        .title-copy p { margin: 4px 0 0; color: var(--muted); font-size: 9px; line-height: 1.4; }
-        .budget-badge { padding: 7px 10px; border-radius: 10px; background: var(--petroleum); box-shadow: var(--shadow-inset); color: var(--muted); font-size: 9px; white-space: nowrap; }
-        .budget-badge strong { color: ${net < 0 ? "#ff867a" : "var(--green)"}; font-size: 12px; }
-        .topology { position: relative; display: grid; grid-template-columns: 1fr 1.16fr 1fr; grid-template-rows: auto 210px 100px; grid-template-areas: "solar solar solar" "grid core home" ". battery ."; gap: 16px 20px; min-height: 540px; }
+        .title-copy p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+        .budget-badge { padding: 8px 11px; border-radius: 10px; background: var(--petroleum); box-shadow: var(--shadow-inset); color: var(--muted); font-size: 11px; white-space: nowrap; }
+        .budget-badge strong { color: ${net < 0 ? "#ff867a" : "var(--green)"}; font-size: 14px; }
+        .topology { position: relative; display: grid; grid-template-columns: minmax(250px, 1fr) minmax(180px, .75fr) minmax(250px, 1fr); grid-template-rows: auto 260px 112px; grid-template-areas: "solar solar solar" "grid core home" "battery . ev"; gap: 18px 22px; min-height: 660px; }
         .topology-lines { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
         .base-path, .active-path { fill: none; stroke-linecap: round; }
         .base-path { stroke: rgba(145, 165, 175, .13); stroke-width: 3; }
@@ -625,65 +692,90 @@ class DuhnergyCard extends HTMLElement {
         .grid-path { stroke: var(--green); }
         .home-path { stroke: var(--cyan); }
         .battery-path { stroke: var(--green); }
+        .ev-path { stroke: var(--blue); }
         @keyframes flow-forward { to { stroke-dashoffset: -32; } }
         .solar-array { grid-area: solar; position: relative; z-index: 1; }
         .weather-production { display: grid; grid-template-columns: minmax(170px, .72fr) minmax(0, 1.28fr); gap: 12px; margin-bottom: 14px; }
         .weather-card { display: flex; align-items: center; gap: 11px; min-height: 58px; padding: 9px 12px; border: 1px solid rgba(255, 255, 255, .025); border-radius: 13px; background: var(--petroleum); box-shadow: var(--shadow-small); }
         .weather-icon { display: grid; place-items: center; width: 40px; height: 40px; flex: 0 0 auto; border-radius: 50%; color: var(--amber); background: var(--petroleum); box-shadow: var(--shadow-small); }
         .weather-icon ha-icon { --mdc-icon-size: 24px; }
-        .weather-card span, .production-pill span { display: block; color: var(--muted); font-size: 7px; letter-spacing: .45px; text-transform: uppercase; }
-        .weather-card strong { display: block; margin-top: 2px; font-size: 11px; }
-        .weather-card em { display: block; margin-top: 2px; color: var(--muted); font-size: 8px; font-style: normal; }
+        .weather-card span, .production-pill span { display: block; color: var(--muted); font-size: 11px; letter-spacing: .45px; text-transform: uppercase; }
+        .weather-card strong { display: block; margin-top: 2px; font-size: 14px; }
+        .weather-card em { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-style: normal; }
         .production-pills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
         .production-pill { display: grid; grid-template-columns: 23px minmax(0, 1fr); grid-template-rows: auto auto; align-items: center; gap: 1px 6px; min-width: 0; padding: 8px 9px; border: 1px solid rgba(255, 255, 255, .025); border-radius: 11px; background: var(--petroleum); box-shadow: var(--shadow-small); }
         .production-pill ha-icon { grid-row: 1 / 3; color: var(--amber); --mdc-icon-size: 19px; }
-        .production-pill strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-        .production-pill small { color: var(--muted); font-size: 7px; font-weight: 500; }
+        .production-pill strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+        .production-pill small { color: var(--muted); font-size: 11px; font-weight: 500; }
         .production-pill.live strong, .production-pill.live ha-icon { color: var(--amber); }
         .production-pill.actual strong, .production-pill.actual ha-icon { color: var(--green); }
-        .section-kicker { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; color: var(--amber); font-size: 10px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; }
-        .section-kicker b { padding: 3px 7px; border-radius: 7px; color: var(--muted); background: var(--petroleum); box-shadow: var(--shadow-inset); font-size: 8px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+        .section-kicker { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; color: var(--amber); font-size: 12px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; }
+        .section-kicker b { padding: 4px 8px; border-radius: 7px; color: var(--muted); background: var(--petroleum); box-shadow: var(--shadow-inset); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
         .solar-cards { display: grid; grid-template-columns: repeat(var(--surface-count), minmax(0, 1fr)); gap: 10px; }
         .surface-card { min-width: 0; padding: 10px; border: 1px solid rgba(255, 255, 255, .025); border-radius: 12px; background: var(--petroleum); box-shadow: var(--shadow-small); }
-        .surface-head { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 7px; }
+        .surface-head { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11px; }
         .surface-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .surface-head b { flex: 0 0 auto; color: var(--amber); font-size: 7px; }
+        .surface-head b { flex: 0 0 auto; color: var(--amber); font-size: 11px; }
         .surface-main { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 7px 0; }
         .surface-main .icon-orb { width: 34px; height: 34px; color: var(--amber); }
         .surface-main .icon-orb ha-icon { --mdc-icon-size: 19px; }
-        .surface-main strong { font-size: 13px; }
-        .surface-main small { color: var(--muted); font-size: 8px; }
+        .surface-main strong { font-size: 16px; }
+        .surface-main small { color: var(--muted); font-size: 11px; }
         .surface-track { display: block; height: 4px; overflow: hidden; border-radius: 5px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
         .surface-track u { display: block; max-width: 100%; height: 100%; border-radius: inherit; background: var(--amber); box-shadow: 0 0 7px rgba(255, 180, 0, .45); text-decoration: none; }
-        .surface-unavailable { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 68px; padding: 12px; border-radius: 12px; color: var(--muted); background: var(--petroleum); box-shadow: var(--shadow-inset); font-size: 9px; text-align: center; }
+        .surface-unavailable { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 68px; padding: 12px; border-radius: 12px; color: var(--muted); background: var(--petroleum); box-shadow: var(--shadow-inset); font-size: 12px; text-align: center; }
         .surface-unavailable ha-icon { color: var(--amber); --mdc-icon-size: 19px; }
         .entity-card, .topology-node, .metric { border: 1px solid rgba(255, 255, 255, .025); background: var(--petroleum); box-shadow: var(--shadow-small); transition: border-color .2s, transform .2s, box-shadow .2s; }
         .entity-card:hover, .topology-node:hover, .metric:hover { border-color: rgba(18, 197, 223, .28); transform: translateY(-1px); }
         .entity-card { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 90px; padding: 12px; border-radius: 13px; }
         .entity-copy { min-width: 0; display: flex; flex-direction: column; }
-        .entity-copy span, .topology-node span { color: var(--muted); font-size: 8px; letter-spacing: .5px; text-transform: uppercase; }
-        .entity-copy strong, .topology-node strong { margin-top: 4px; font-size: 14px; }
-        .entity-copy small, .metric small { color: var(--muted); font-size: 9px; font-weight: 500; }
-        .entity-copy em, .topology-node em { margin-top: 4px; color: var(--muted); font-size: 8px; font-style: normal; }
+        .entity-copy span, .topology-node span { color: var(--muted); font-size: 11px; letter-spacing: .5px; text-transform: uppercase; }
+        .entity-copy strong, .topology-node strong { margin-top: 4px; font-size: 16px; }
+        .entity-copy small, .metric small { color: var(--muted); font-size: 11px; font-weight: 500; }
+        .entity-copy em, .topology-node em { margin-top: 4px; color: var(--muted); font-size: 11px; font-style: normal; }
         .icon-orb { flex: 0 0 auto; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; color: var(--cyan); background: var(--petroleum); box-shadow: var(--shadow-small); }
         .icon-orb ha-icon { --mdc-icon-size: 22px; }
         .solar-card .icon-orb { color: var(--amber); }
         .topology-node { position: relative; z-index: 1; border-radius: 15px; }
-        .grid-node { grid-area: grid; align-self: center; display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 88px; padding: 15px; }
+        .grid-node { grid-area: grid; }
         .active-grid strong { color: var(--green); }
-        .core-node { grid-area: core; align-self: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 178px; padding: 18px; text-align: center; border-color: rgba(18, 197, 223, .25); box-shadow: var(--shadow-flat), 0 0 18px rgba(18, 197, 223, .12); }
+        .detail-node { align-self: stretch; min-height: 240px; padding: 16px; }
+        .node-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .node-heading > div:first-child { display: flex; flex-direction: column; }
+        .node-pills { display: grid; gap: 8px; }
+        .node-pill { min-width: 0; padding: 9px 10px; border-radius: 10px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
+        .node-pill span { display: block; font-size: 11px; }
+        .node-pill strong { display: block; margin-top: 3px; font-size: 14px; }
+        .node-pill small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+        .node-pill.live strong { color: var(--cyan); }
+        .node-pill.earning strong { color: var(--green); }
+        .source-pills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+        .source-pills span { padding: 8px 6px; border-radius: 8px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); color: var(--text); font-size: 11px; text-align: center; text-transform: none; }
+        .source-pills b { display: block; margin-bottom: 3px; color: var(--cyan); font-size: 11px; }
+        .estimate-note { display: block; color: var(--muted); font-size: 11px; line-height: 1.4; }
+        .core-node { grid-area: core; align-self: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 190px; padding: 18px; text-align: center; border-color: rgba(18, 197, 223, .25); box-shadow: var(--shadow-flat), 0 0 18px rgba(18, 197, 223, .12); }
         .core-node > span { color: var(--cyan); font-weight: 800; }
-        .core-node .core-icon { display: grid; place-items: center; width: 62px; height: 62px; margin: 12px 0; border-radius: 50%; color: var(--cyan); background: var(--petroleum); box-shadow: var(--shadow-small); }
-        .core-node .core-icon ha-icon { --mdc-icon-size: 31px; }
+        .core-node .core-icon { position: relative; display: grid; place-items: center; width: 78px; height: 78px; margin: 15px 0; overflow: visible; border-radius: 50%; color: var(--cyan); background: var(--petroleum); box-shadow: var(--shadow-small), 0 0 22px rgba(18, 197, 223, .16); }
+        .core-node .core-icon ha-icon { --mdc-icon-size: 39px; }
+        .electron { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); opacity: 0; pointer-events: none; }
+        .electron-one { animation: electron-one 1.9s ease-out infinite; }
+        .electron-two { animation: electron-two 2.2s .45s ease-out infinite; }
+        .electron-three { animation: electron-three 2s .85s ease-out infinite; }
+        .electron-four { animation: electron-four 2.3s 1.2s ease-out infinite; }
+        @keyframes electron-one { 0% { transform: translate(-10px,-8px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(-51px,-43px) scale(1); opacity: 0; } }
+        @keyframes electron-two { 0% { transform: translate(9px,-9px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(53px,-38px) scale(1); opacity: 0; } }
+        @keyframes electron-three { 0% { transform: translate(-9px,8px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(-55px,39px) scale(1); opacity: 0; } }
+        @keyframes electron-four { 0% { transform: translate(10px,7px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(54px,43px) scale(1); opacity: 0; } }
         .core-node strong { font-size: 18px; }
         .core-node em { color: var(--cyan); }
-        .home-node { grid-area: home; align-self: center; min-height: 135px; padding: 14px; }
-        .home-summary { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-        .ev-subnode { display: flex; align-items: center; gap: 9px; margin-top: 12px; padding: 9px; border-radius: 10px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
-        .ev-subnode ha-icon { flex: 0 0 auto; color: var(--blue); --mdc-icon-size: 20px; }
-        .ev-subnode span { display: block; }
-        .ev-subnode strong { display: block; margin-top: 2px; color: var(--blue); font-size: 10px; }
-        .battery-node { grid-area: battery; align-self: start; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; min-height: 86px; padding: 12px 15px; border-top-color: rgba(40, 215, 162, .38); }
+        .home-node { grid-area: home; }
+        .ev-node { grid-area: ev; align-self: start; min-height: 96px; padding: 14px; border-top-color: rgba(87, 169, 255, .38); }
+        .ev-summary { display: flex; align-items: center; gap: 12px; }
+        .ev-summary ha-icon { flex: 0 0 auto; color: var(--blue); --mdc-icon-size: 28px; }
+        .ev-summary > div { display: flex; flex-direction: column; min-width: 0; }
+        .ev-summary strong { color: var(--blue); }
+        .ev-summary small { margin-top: 4px; color: var(--muted); font-size: 11px; }
+        .battery-node { grid-area: battery; align-self: start; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; min-height: 96px; padding: 14px 15px; border-top-color: rgba(40, 215, 162, .38); }
         .active-battery strong, .battery-node .icon-orb { color: var(--green); }
         .soc { min-width: 62px; text-align: right; }
         .soc b { font-size: 19px; }
@@ -695,11 +787,11 @@ class DuhnergyCard extends HTMLElement {
         .mode-control, .setting-row, .slider-row { border-radius: 13px; background: var(--petroleum); box-shadow: var(--shadow-small); }
         .mode-control, .setting-row { display: grid; grid-template-columns: minmax(0, 1fr) 112px; align-items: center; gap: 12px; min-height: 57px; padding: 10px 12px; }
         .mode-control span, .setting-row > span, .slider-row > span { display: flex; flex-direction: column; min-width: 0; }
-        .mode-control strong, .setting-row strong, .slider-row strong { font-size: 10px; }
-        .mode-control small, .setting-row small, .slider-row small { margin-top: 3px; color: var(--muted); font-size: 8px; line-height: 1.35; }
-        .mode-control select, .setting-row input { width: 100%; min-height: 34px; border: 0; border-radius: 9px; color: var(--cyan); background: var(--petroleum-dark); box-shadow: var(--shadow-inset); padding: 5px 8px; font-size: 10px; font-weight: 700; }
+        .mode-control strong, .setting-row strong, .slider-row strong { font-size: 13px; }
+        .mode-control small, .setting-row small, .slider-row small { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+        .mode-control select, .setting-row input { width: 100%; min-height: 40px; border: 0; border-radius: 9px; color: var(--cyan); background: var(--petroleum-dark); box-shadow: var(--shadow-inset); padding: 6px 9px; font-size: 12px; font-weight: 700; }
         .slider-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 10px 12px; }
-        .slider-value { align-self: start; min-width: 49px; padding: 4px 6px; border-radius: 7px; color: var(--cyan); background: var(--cyan-soft); font-size: 8px; font-weight: 800; text-align: center; white-space: nowrap; }
+        .slider-value { align-self: start; min-width: 58px; padding: 5px 7px; border-radius: 7px; color: var(--cyan); background: var(--cyan-soft); font-size: 11px; font-weight: 800; text-align: center; white-space: nowrap; }
         .slider-row input[type="range"] { grid-column: 1 / -1; width: 100%; height: 14px; margin: 2px 0 0; padding: 0; border: 0; background: transparent; box-shadow: none; appearance: none; cursor: pointer; }
         .slider-row input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 6px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
         .slider-row input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -5px; border: 0; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 9px rgba(18, 197, 223, .42); appearance: none; }
@@ -708,21 +800,21 @@ class DuhnergyCard extends HTMLElement {
         .decision-log { max-height: 270px; padding: 11px; overflow-y: auto; border-radius: 13px; background: var(--petroleum); box-shadow: var(--shadow-inset); }
         .decision { display: grid; grid-template-columns: 48px 1fr; gap: 10px; margin-bottom: 10px; padding: 10px; border: 1px solid rgba(18, 197, 223, .42); border-radius: 11px; background: rgba(17, 30, 36, .4); }
         .decision:last-child { margin-bottom: 0; }
-        .decision time { align-self: start; padding: 4px; border-radius: 6px; color: var(--amber); background: var(--amber-soft); font-family: monospace; font-size: 8px; text-align: center; }
-        .decision strong { font-size: 10px; }
-        .decision p { margin: 3px 0; color: #d9e2e5; font-size: 9px; line-height: 1.4; }
-        .decision small { color: var(--muted); font-size: 8px; }
-        .empty-state { padding: 20px 12px; color: var(--muted); font-size: 9px; line-height: 1.45; text-align: center; }
+        .decision time { align-self: start; padding: 5px; border-radius: 6px; color: var(--amber); background: var(--amber-soft); font-family: monospace; font-size: 11px; text-align: center; }
+        .decision strong { font-size: 13px; }
+        .decision p { margin: 5px 0; color: #d9e2e5; font-size: 12px; line-height: 1.5; }
+        .decision small { color: var(--muted); font-size: 11px; line-height: 1.4; }
+        .empty-state { padding: 20px 12px; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; }
         .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 22px; }
         .chart-panel, .timeline-panel, .stats-panel { padding: 18px; }
         .chart-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-        .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; color: var(--muted); font-size: 8px; }
+        .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; color: var(--muted); font-size: 12px; }
         .legend span { display: flex; align-items: center; gap: 4px; }
         .legend i { width: 7px; height: 7px; border-radius: 2px; background: currentColor; }
         .analytics-chart { display: block; width: 100%; min-height: 210px; margin-top: 6px; overflow: visible; }
         .chart-grid { stroke: rgba(255, 255, 255, .055); stroke-width: 1; }
         .chart-grid.horizontal { stroke-dasharray: 3 5; }
-        .chart-label { fill: var(--muted); font-size: 8px; }
+        .chart-label { fill: var(--muted); font-size: 11px; }
         .solar-area { fill: url(#solar-fill); }
         .solar-line, .sell-line { fill: none; stroke-linejoin: round; stroke-linecap: round; }
         .solar-line { stroke: var(--amber); stroke-width: 2.4; }
@@ -731,35 +823,35 @@ class DuhnergyCard extends HTMLElement {
         .price-bar.low { fill: rgba(40, 215, 162, .72); }
         .price-bar.normal { fill: rgba(18, 197, 223, .64); }
         .price-bar.high { fill: rgba(235, 87, 87, .73); }
-        .empty-chart { display: grid; place-items: center; min-height: 220px; color: var(--muted); font-size: 10px; }
+        .empty-chart { display: grid; place-items: center; min-height: 220px; color: var(--muted); font-size: 12px; }
         .lower-grid { display: grid; grid-template-columns: minmax(280px, .8fr) minmax(0, 1.2fr); gap: 22px; margin-top: 22px; }
         .timeline { max-height: 310px; overflow-y: auto; padding-right: 3px; }
         .timeline-item { display: grid; grid-template-columns: 55px 12px 1fr auto; gap: 8px; min-height: 58px; }
-        .timeline-item time { font-size: 9px; text-align: right; }
-        .timeline-item time small { display: block; margin-top: 2px; color: var(--muted); font-size: 7px; }
+        .timeline-item time { font-size: 11px; text-align: right; }
+        .timeline-item time small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
         .timeline-item > i { position: relative; border-left: 1px solid rgba(40, 215, 162, .28); }
         .timeline-item > i:before { content: ""; position: absolute; left: -4px; top: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 7px rgba(40, 215, 162, .45); }
-        .timeline-item strong { font-size: 10px; }
-        .timeline-item p { margin: 3px 0; color: var(--muted); font-size: 8px; line-height: 1.35; }
-        .timeline-item b { color: var(--cyan); font-size: 8px; white-space: nowrap; }
+        .timeline-item strong { font-size: 13px; }
+        .timeline-item p { margin: 4px 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+        .timeline-item b { color: var(--cyan); font-size: 11px; white-space: nowrap; }
         .period-tabs { display: flex; gap: 4px; margin-bottom: 13px; padding: 4px; overflow-x: auto; border-radius: 11px; background: var(--petroleum); box-shadow: var(--shadow-inset); }
-        .period-tabs button { flex: 1 0 auto; min-height: 29px; padding: 4px 8px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; cursor: pointer; font-size: 8px; font-weight: 700; }
+        .period-tabs button { flex: 1 0 auto; min-height: 40px; padding: 7px 10px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; cursor: pointer; font-size: 11px; font-weight: 700; }
         .period-tabs button.selected { color: var(--cyan); background: var(--petroleum-light); box-shadow: var(--shadow-small); }
         .metric-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; }
         .metric { display: grid; grid-template-columns: 30px 1fr; grid-template-rows: auto auto; align-items: center; gap: 1px 7px; min-width: 0; min-height: 64px; padding: 9px; border-radius: 11px; }
         .metric .icon-orb { grid-row: 1 / 3; width: 30px; height: 30px; color: var(--cyan); }
         .metric .icon-orb ha-icon { --mdc-icon-size: 17px; }
-        .metric > span { overflow: hidden; color: var(--muted); font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
-        .metric > strong { font-size: 10px; white-space: nowrap; }
+        .metric > span { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+        .metric > strong { font-size: 13px; white-space: nowrap; }
         .expander { margin-top: 22px; }
-        .expander > summary { padding: 13px 17px; cursor: pointer; color: var(--muted); font-size: 10px; font-weight: 700; }
+        .expander > summary { padding: 14px 17px; cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 700; }
         .command-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; padding: 2px 17px 17px; }
-        .command { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 7px; border: 1px solid rgba(255, 255, 255, .025); border-radius: 10px; color: var(--text); background: var(--petroleum); box-shadow: var(--shadow-small); cursor: pointer; font-size: 8px; font-weight: 700; }
+        .command { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 8px; border: 1px solid rgba(255, 255, 255, .025); border-radius: 10px; color: var(--text); background: var(--petroleum); box-shadow: var(--shadow-small); cursor: pointer; font-size: 11px; font-weight: 700; }
         .command:active { box-shadow: var(--shadow-inset); transform: translateY(1px); }
         .command ha-icon { color: var(--cyan); --mdc-icon-size: 16px; }
         .extra-settings { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 2px 17px 17px; }
         .clear-log { min-height: 28px; padding: 5px 8px; }
-        .footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, .045); color: var(--muted); font-size: 8px; text-align: center; }
+        .footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, .045); color: var(--muted); font-size: 11px; text-align: center; }
         @media (max-width: 1000px) {
           .main-grid { grid-template-columns: 1fr; }
           .side-stack { display: grid; grid-template-columns: 1fr 1fr; }
@@ -780,8 +872,8 @@ class DuhnergyCard extends HTMLElement {
           .weather-production { grid-template-columns: 1fr; }
           .solar-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
           .entity-card { min-height: 76px; }
-          .grid-node, .core-node, .home-node, .battery-node { align-self: stretch; }
-          .grid-node, .core-node, .home-node, .battery-node { border-top: 2px solid rgba(18, 197, 223, .25); }
+          .grid-node, .core-node, .home-node, .battery-node, .ev-node { align-self: stretch; }
+          .grid-node, .core-node, .home-node, .battery-node, .ev-node { border-top: 2px solid rgba(18, 197, 223, .25); }
           .side-stack, .analytics-grid, .lower-grid { grid-template-columns: 1fr; }
           .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
           .command-grid { grid-template-columns: repeat(2, 1fr); }
@@ -790,14 +882,14 @@ class DuhnergyCard extends HTMLElement {
         }
         @media (max-width: 400px) {
           .brand h2 { font-size: 17px; }
-          .brand p { font-size: 9px; }
+          .brand p { font-size: 12px; }
           .header-status { grid-template-columns: 1fr; }
           .panel-title, .chart-header { flex-direction: column; }
           .mode-control, .setting-row { grid-template-columns: 1fr 94px; }
           .production-pills, .solar-cards { grid-template-columns: 1fr; }
           .metric-grid { grid-template-columns: 1fr; }
         }
-        @media (prefers-reduced-motion: reduce) { .active-path.is-active { animation: none; } }
+        @media (prefers-reduced-motion: reduce) { .active-path.is-active, .electron { animation: none; } }
       </style>
       <ha-card class="${tone}">
         <div class="dashboard">
@@ -823,7 +915,7 @@ class DuhnergyCard extends HTMLElement {
                 <div class="title-copy"><h3><ha-icon icon="mdi:transmission-tower-export"></ha-icon>Live energy</h3><p data-entity="${this.config.reason_entity}" role="button" tabindex="0">${this._escape(reason)}</p></div>
                 <div class="budget-badge">24h budget <strong>${net >= 0 ? "+" : ""}${net.toFixed(1)} kWh</strong></div>
               </div>
-              ${this._powerTopology(planAttributes, forecastAttributes)}
+              ${this._powerTopology(planAttributes, forecastAttributes, statsAttributes)}
             </section>
 
             <aside class="side-stack">
