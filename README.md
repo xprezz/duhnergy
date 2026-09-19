@@ -15,7 +15,7 @@ For a first installation:
 4. Go to **Settings → Devices & services → Add integration**, search for **Duhnergy!**, and complete the form.
 5. Keep **Mode** set to **Shadow** while checking the mappings, forecast, calculated timeline, and simulator log.
 
-To update to v0.2.0, open Duhnergy! in HACS, choose **Update/download**, restart Home Assistant, then hard-refresh the dashboard browser once so the `?v=0.2.0` card resource is loaded.
+To update to v0.2.1, open Duhnergy! in HACS, choose **Update/download**, restart Home Assistant, then hard-refresh the dashboard browser once so the `?v=0.2.1` card resource is loaded.
 
 The setup form is prefilled with known entity IDs for the target installation. Every source, Solis control, sign convention, currency, and planning setting can be changed later under **Settings → Devices & services → Duhnergy! → Configure**. The Easee device ID is derived from the selected charger status entity's entity-registry device and is never hardcoded.
 
@@ -28,7 +28,7 @@ type: custom:duhnergy-card
 title: Duhnergy!
 ```
 
-The v0.2.0 card is optimised for iPad landscape and other widescreen dashboards. It collapses to a single-column layout on narrow screens and includes:
+The v0.2.1 card is optimised for iPad landscape and other widescreen dashboards. It collapses to a single-column layout on narrow screens and includes:
 
 - Live directional power flow among Solar, House, Battery, Grid, and EV.
 - One-to-four individually mapped solar surfaces, current weather, live production, today's forecast, and production so far today.
