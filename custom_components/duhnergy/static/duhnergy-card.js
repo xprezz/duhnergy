@@ -25,6 +25,7 @@ class DuhnergyCard extends HTMLElement {
     };
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     this._render();
+    this.connectedCallback();
   }
 
   set hass(hass) {
@@ -215,45 +216,44 @@ class DuhnergyCard extends HTMLElement {
           },
         ];
     const maximumSurfacePower = Math.max(1, ...surfaces.map((surface) => Number(surface.power_w) || 0));
-    const solarPaths = surfaces
-      .map((surface, index) => {
-        const startX = ((index + 0.5) / surfaces.length) * 1000;
-        const path = `M${startX.toFixed(1)} 186 C${startX.toFixed(1)} 205 500 205 500 232`;
-        return `<path class="base-path" d="${path}"></path><path class="active-path solar-path ${
-          Number(surface.power_w) > 20 ? "is-active" : ""
-        }" d="${path}"></path>`;
-      })
-      .join("");
-    const paths = [
-      ["grid-path", Math.abs(grid) > 20, !gridImporting],
-      ["home-path", house > 20, false],
-      ["battery-path", Math.abs(battery) > 20, batteryCharging],
-      ["ev-path", ev > 20, false],
+
+    this._flowModel = [
+      ...surfaces.map((surface, index) => ({
+        from: [`.surface-card:nth-of-type(${index + 1})`, "bottom", 0.5],
+        to: [".core-node", "top", (index + 0.5) / surfaces.length],
+        tone: "solar",
+        active: Number(surface.power_w) > 20,
+      })),
+      {
+        from: [".grid-node", "right", 0.3],
+        to: [".core-node", "left", 0.28],
+        tone: "grid",
+        active: Math.abs(grid) > 20,
+        reversed: !gridImporting,
+      },
+      {
+        from: [".battery-node", "right", 0.5],
+        to: [".core-node", "left", 0.72],
+        tone: "battery",
+        active: Math.abs(battery) > 20,
+        reversed: batteryCharging,
+      },
+      {
+        from: [".core-node", "right", 0.28],
+        to: [".home-node", "left", 0.3],
+        tone: "home",
+        active: house > 20,
+      },
+      {
+        from: [".core-node", "right", 0.72],
+        to: [".ev-node", "left", 0.5],
+        tone: "ev",
+        active: ev > 20,
+      },
     ];
 
     return `<div class="topology">
-      <svg class="topology-lines" viewBox="0 0 1000 680" preserveAspectRatio="none" aria-hidden="true">
-        ${solarPaths}
-        <path class="base-path" d="M260 350 C325 350 365 340 410 340"></path>
-        <path class="base-path" d="M590 340 C635 340 675 350 740 350"></path>
-        <path class="base-path" d="M460 430 C400 490 300 535 165 565"></path>
-        <path class="base-path" d="M540 430 C600 490 700 535 835 565"></path>
-        ${paths
-          .map(([className, active, reverse]) => {
-            const definitions = {
-              "grid-path": reverse
-                ? "M410 340 C365 340 325 350 260 350"
-                : "M260 350 C325 350 365 340 410 340",
-              "home-path": "M590 340 C635 340 675 350 740 350",
-              "battery-path": reverse
-                ? "M165 565 C300 535 400 490 460 430"
-                : "M460 430 C400 490 300 535 165 565",
-              "ev-path": "M540 430 C600 490 700 535 835 565",
-            };
-            return `<path class="active-path ${className} ${active ? "is-active" : ""}" d="${definitions[className]}"></path>`;
-          })
-          .join("")}
-      </svg>
+      <svg class="flow-layer" aria-hidden="true" focusable="false"></svg>
 
       <div class="solar-array">
         <div class="weather-production">
@@ -632,24 +632,51 @@ class DuhnergyCard extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>
         :host {
-          --petroleum: #182830;
-          --petroleum-light: #1e323c;
-          --petroleum-dark: #111e24;
-          --text: #eef3f5;
-          --muted: #91a5af;
-          --cyan: #12c5df;
-          --cyan-soft: rgba(18, 197, 223, .16);
-          --amber: #ffb400;
-          --amber-soft: rgba(255, 180, 0, .14);
-          --green: #28d7a2;
-          --green-soft: rgba(40, 215, 162, .14);
-          --blue: #57a9ff;
-          --red: #eb5757;
-          --shadow-flat: 8px 8px 18px rgba(8, 16, 20, .7), -6px -6px 16px rgba(43, 70, 82, .48);
-          --shadow-small: 4px 4px 10px rgba(8, 16, 20, .68), -3px -3px 9px rgba(43, 70, 82, .42);
-          --shadow-inset: inset 4px 4px 9px rgba(8, 16, 20, .75), inset -3px -3px 8px rgba(43, 70, 82, .4);
+          --bg: #131f26;
+          --petroleum: #1a2a33;
+          --petroleum-light: #22343f;
+          --petroleum-dark: #142229;
+          --line: rgba(255, 255, 255, .075);
+          --line-strong: rgba(255, 255, 255, .13);
+          --text: #f2f7f9;
+          --muted: #9db1bc;
+          --cyan: #2ad4ea;
+          --cyan-soft: rgba(42, 212, 234, .15);
+          --amber: #ffb63d;
+          --amber-soft: rgba(255, 182, 61, .14);
+          --green: #34d99f;
+          --green-soft: rgba(52, 217, 159, .14);
+          --blue: #5aa9ff;
+          --red: #ff6b6b;
+
+          --f1: 11px;
+          --f2: 12px;
+          --f3: 13px;
+          --f4: 15px;
+          --f5: 17px;
+          --f6: 20px;
+          --f7: 26px;
+
+          --s1: 4px;
+          --s2: 8px;
+          --s3: 12px;
+          --s4: 16px;
+          --s5: 20px;
+          --s6: 24px;
+          --s7: 32px;
+
+          --r1: 10px;
+          --r2: 14px;
+          --r3: 18px;
+          --r4: 24px;
+
+          --shadow-flat: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 28px rgba(0, 0, 0, .26);
+          --shadow-small: 0 1px 2px rgba(0, 0, 0, .28), 0 4px 12px rgba(0, 0, 0, .2);
+          --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, .05), inset 0 -1px 0 rgba(0, 0, 0, .22);
           display: block;
           color: var(--text);
+          font-variant-numeric: tabular-nums;
+          -webkit-font-smoothing: antialiased;
         }
         * { box-sizing: border-box; }
         ha-card { overflow: hidden; border: 0; border-radius: var(--ha-card-border-radius, 18px); color: var(--text); background: var(--petroleum); font-family: var(--paper-font-body1_-_font-family, Inter, sans-serif); }
@@ -658,7 +685,7 @@ class DuhnergyCard extends HTMLElement {
         [data-entity] { cursor: pointer; }
         [data-entity]:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
         .dashboard { padding: 16px; background: radial-gradient(circle at 15% 0%, rgba(18, 197, 223, .045), transparent 32%), var(--petroleum); }
-        .neo-panel { min-width: 0; border: 1px solid rgba(255, 255, 255, .025); border-radius: 18px; background: var(--petroleum); box-shadow: var(--shadow-flat); }
+        .neo-panel { min-width: 0; border: 1px solid var(--line); border-radius: var(--r3); background: var(--petroleum); box-shadow: var(--shadow-flat); }
         .header { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 15px 18px; margin-bottom: 22px; }
         .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
         .brand .icon-orb { width: 44px; height: 44px; color: var(--cyan); }
@@ -674,26 +701,24 @@ class DuhnergyCard extends HTMLElement {
         .off .live-badge { color: var(--muted); background: rgba(145, 165, 175, .1); }
         .mode-box select { min-width: 105px; height: 38px; padding: 5px 26px 5px 9px; border: 0; border-radius: 8px; color: var(--cyan); background: var(--petroleum-dark); box-shadow: var(--shadow-inset); cursor: pointer; font-size: 13px; font-weight: 700; text-transform: capitalize; }
         .mode-box option { color: var(--text); background: var(--petroleum); }
-        .main-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(310px, 1fr); gap: 22px; }
-        .topology-panel { min-height: 720px; padding: 22px; overflow: hidden; }
-        .panel-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 16px; }
+        .main-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(310px, 1fr); gap: var(--s5); }
+        .topology-panel { display: flex; flex-direction: column; padding: var(--s6); overflow: hidden; }
+        .panel-title { display: flex; justify-content: space-between; align-items: center; gap: var(--s4); min-height: 54px; margin-bottom: var(--s5); }
         .title-copy h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; letter-spacing: .5px; text-transform: uppercase; }
         .title-copy h3 ha-icon { color: var(--cyan); --mdc-icon-size: 17px; }
         .title-copy p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
         .budget-badge { padding: 8px 11px; border-radius: 10px; background: var(--petroleum); box-shadow: var(--shadow-inset); color: var(--muted); font-size: 11px; white-space: nowrap; }
         .budget-badge strong { color: ${net < 0 ? "#ff867a" : "var(--green)"}; font-size: 14px; }
-        .topology { position: relative; display: grid; grid-template-columns: minmax(250px, 1fr) minmax(180px, .75fr) minmax(250px, 1fr); grid-template-rows: auto 260px 112px; grid-template-areas: "solar solar solar" "grid core home" "battery . ev"; gap: 18px 22px; min-height: 660px; }
-        .topology-lines { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-        .base-path, .active-path { fill: none; stroke-linecap: round; }
-        .base-path { stroke: rgba(145, 165, 175, .13); stroke-width: 3; }
-        .active-path { opacity: 0; stroke-width: 3; stroke-dasharray: 7 9; }
-        .active-path.is-active { opacity: 1; animation: flow-forward 1.3s linear infinite; }
-        .solar-path { stroke: var(--amber); }
-        .grid-path { stroke: var(--green); }
-        .home-path { stroke: var(--cyan); }
-        .battery-path { stroke: var(--green); }
-        .ev-path { stroke: var(--blue); }
-        @keyframes flow-forward { to { stroke-dashoffset: -32; } }
+        .topology { position: relative; flex: 1 1 auto; display: grid; grid-template-columns: minmax(240px, 1fr) minmax(190px, .78fr) minmax(240px, 1fr); grid-template-rows: auto auto auto; grid-template-areas: "solar solar solar" "grid core home" "battery core ev"; align-content: space-between; gap: var(--s5) var(--s6); }
+        .flow-layer { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+        .flow-track { fill: none; stroke: var(--line-strong); stroke-width: 2; stroke-linecap: round; }
+        .flow-live { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 2 11; animation: flow-move 1.5s linear infinite; }
+        .flow-solar { stroke: var(--amber); }
+        .flow-grid { stroke: var(--green); }
+        .flow-home { stroke: var(--cyan); }
+        .flow-battery { stroke: var(--green); }
+        .flow-ev { stroke: var(--blue); }
+        @keyframes flow-move { to { stroke-dashoffset: -26; } }
         .solar-array { grid-area: solar; position: relative; z-index: 1; }
         .weather-production { display: grid; grid-template-columns: minmax(170px, .72fr) minmax(0, 1.28fr); gap: 12px; margin-bottom: 14px; }
         .weather-card { display: flex; align-items: center; gap: 11px; min-height: 58px; padding: 9px 12px; border: 1px solid rgba(255, 255, 255, .025); border-radius: 13px; background: var(--petroleum); box-shadow: var(--shadow-small); }
@@ -739,7 +764,7 @@ class DuhnergyCard extends HTMLElement {
         .topology-node { position: relative; z-index: 1; border-radius: 15px; }
         .grid-node { grid-area: grid; }
         .active-grid strong { color: var(--green); }
-        .detail-node { align-self: stretch; min-height: 240px; padding: 16px; }
+        .detail-node { align-self: stretch; min-height: 0; padding: var(--s4); }
         .node-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
         .node-heading > div:first-child { display: flex; flex-direction: column; }
         .node-pills { display: grid; gap: 8px; }
@@ -781,8 +806,9 @@ class DuhnergyCard extends HTMLElement {
         .soc b { font-size: 19px; }
         .soc i { display: block; width: 62px; height: 7px; margin-top: 5px; overflow: hidden; border-radius: 7px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
         .soc u { display: block; height: 100%; border-radius: inherit; background: var(--green); box-shadow: 0 0 8px rgba(40, 215, 162, .45); text-decoration: none; }
-        .side-stack { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
-        .controls-panel, .log-panel { padding: 18px; }
+        .side-stack { display: flex; flex-direction: column; gap: var(--s5); min-width: 0; }
+        .controls-panel, .log-panel { padding: var(--s5); }
+        .log-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
         .control-list { display: flex; flex-direction: column; gap: 12px; }
         .mode-control, .setting-row, .slider-row { border-radius: 13px; background: var(--petroleum); box-shadow: var(--shadow-small); }
         .mode-control, .setting-row { display: grid; grid-template-columns: minmax(0, 1fr) 112px; align-items: center; gap: 12px; min-height: 57px; padding: 10px 12px; }
@@ -797,17 +823,18 @@ class DuhnergyCard extends HTMLElement {
         .slider-row input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -5px; border: 0; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 9px rgba(18, 197, 223, .42); appearance: none; }
         .slider-row input[type="range"]::-moz-range-track { height: 6px; border-radius: 6px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
         .slider-row input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 9px rgba(18, 197, 223, .42); }
-        .decision-log { max-height: 270px; padding: 11px; overflow-y: auto; border-radius: 13px; background: var(--petroleum); box-shadow: var(--shadow-inset); }
-        .decision { display: grid; grid-template-columns: 48px 1fr; gap: 10px; margin-bottom: 10px; padding: 10px; border: 1px solid rgba(18, 197, 223, .42); border-radius: 11px; background: rgba(17, 30, 36, .4); }
+        .decision-log { flex: 1 1 auto; min-height: 220px; max-height: 420px; padding: var(--s3); overflow-y: auto; border-radius: var(--r2); background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
+        .decision { display: grid; grid-template-columns: 50px 1fr; gap: var(--s3); margin-bottom: var(--s2); padding: var(--s3); border: 1px solid var(--line); border-left: 2px solid var(--cyan); border-radius: var(--r1); background: rgba(255, 255, 255, .022); }
         .decision:last-child { margin-bottom: 0; }
         .decision time { align-self: start; padding: 5px; border-radius: 6px; color: var(--amber); background: var(--amber-soft); font-family: monospace; font-size: 11px; text-align: center; }
         .decision strong { font-size: 13px; }
         .decision p { margin: 5px 0; color: #d9e2e5; font-size: 12px; line-height: 1.5; }
         .decision small { color: var(--muted); font-size: 11px; line-height: 1.4; }
         .empty-state { padding: 20px 12px; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; }
-        .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 22px; }
+        .chart-panel .budget-badge { display: inline-block; margin: var(--s2) 0 0; }
+        .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s5); margin-top: var(--s5); }
         .chart-panel, .timeline-panel, .stats-panel { padding: 18px; }
-        .chart-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+        .chart-header { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); min-height: 54px; }
         .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; color: var(--muted); font-size: 12px; }
         .legend span { display: flex; align-items: center; gap: 4px; }
         .legend i { width: 7px; height: 7px; border-radius: 2px; background: currentColor; }
@@ -824,7 +851,7 @@ class DuhnergyCard extends HTMLElement {
         .price-bar.normal { fill: rgba(18, 197, 223, .64); }
         .price-bar.high { fill: rgba(235, 87, 87, .73); }
         .empty-chart { display: grid; place-items: center; min-height: 220px; color: var(--muted); font-size: 12px; }
-        .lower-grid { display: grid; grid-template-columns: minmax(280px, .8fr) minmax(0, 1.2fr); gap: 22px; margin-top: 22px; }
+        .lower-grid { display: grid; grid-template-columns: minmax(280px, .8fr) minmax(0, 1.2fr); gap: var(--s5); margin-top: var(--s5); }
         .timeline { max-height: 310px; overflow-y: auto; padding-right: 3px; }
         .timeline-item { display: grid; grid-template-columns: 55px 12px 1fr auto; gap: 8px; min-height: 58px; }
         .timeline-item time { font-size: 11px; text-align: right; }
@@ -843,7 +870,7 @@ class DuhnergyCard extends HTMLElement {
         .metric .icon-orb ha-icon { --mdc-icon-size: 17px; }
         .metric > span { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
         .metric > strong { font-size: 13px; white-space: nowrap; }
-        .expander { margin-top: 22px; }
+        .expander { margin-top: var(--s5); }
         .expander > summary { padding: 14px 17px; cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 700; }
         .command-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; padding: 2px 17px 17px; }
         .command { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 8px; border: 1px solid rgba(255, 255, 255, .025); border-radius: 10px; color: var(--text); background: var(--petroleum); box-shadow: var(--shadow-small); cursor: pointer; font-size: 11px; font-weight: 700; }
@@ -867,7 +894,7 @@ class DuhnergyCard extends HTMLElement {
           .mode-box select { min-width: 0; width: 100%; }
           .topology-panel { padding: 14px; }
           .topology { display: flex; flex-direction: column; min-height: 0; gap: 12px; }
-          .topology-lines { display: none; }
+          .flow-layer { display: none; }
           .solar-array, .topology-node { width: 100%; }
           .weather-production { grid-template-columns: 1fr; }
           .solar-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -944,7 +971,8 @@ class DuhnergyCard extends HTMLElement {
 
           <section class="analytics-grid">
             <div class="neo-panel chart-panel">
-              <div class="chart-header"><div class="title-copy"><h3><ha-icon icon="mdi:chart-areaspline"></ha-icon>Solar forecast (24h)</h3><p>Hourly generation outlook · peak ${this._format(solarPeak, 1)} kW</p></div><div class="legend"><span style="color:var(--amber)"><i></i>Solar</span></div></div>
+              <div class="chart-header"><div class="title-copy"><h3><ha-icon icon="mdi:chart-areaspline"></ha-icon>Solar forecast (24h)</h3><p>Hourly generation outlook</p></div><div class="legend"><span style="color:var(--amber)"><i></i>Solar</span></div></div>
+              <div class="budget-badge">Forecast peak <strong>${this._format(solarPeak, 1)} kW</strong></div>
               ${this._solarChart(forecastAttributes)}
             </div>
             <div class="neo-panel chart-panel">
@@ -986,6 +1014,7 @@ class DuhnergyCard extends HTMLElement {
       </ha-card>`;
 
     this._bindEvents(openSections);
+    this._scheduleFlowDraw();
   }
 
   _bindEvents(openSections) {
@@ -1045,6 +1074,78 @@ class DuhnergyCard extends HTMLElement {
         composed: true,
       }),
     );
+  }
+
+  connectedCallback() {
+    if (!this._resizeObserver && typeof ResizeObserver !== "undefined") {
+      this._resizeObserver = new ResizeObserver(() => this._drawFlows());
+      this._resizeObserver.observe(this);
+    }
+  }
+
+  disconnectedCallback() {
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = undefined;
+    cancelAnimationFrame(this._flowFrame);
+    clearTimeout(this._interactionRenderTimer);
+  }
+
+  _scheduleFlowDraw() {
+    cancelAnimationFrame(this._flowFrame);
+    this._flowFrame = requestAnimationFrame(() => this._drawFlows());
+  }
+
+  _anchor(container, selector, side, position) {
+    const element = this.shadowRoot?.querySelector(selector);
+    if (!element) return null;
+    const box = element.getBoundingClientRect();
+    if (!box.width && !box.height) return null;
+    const x = box.x - container.x;
+    const y = box.y - container.y;
+    const alongX = x + box.width * position;
+    const alongY = y + box.height * position;
+    if (side === "top") return [alongX, y];
+    if (side === "bottom") return [alongX, y + box.height];
+    if (side === "left") return [x, alongY];
+    return [x + box.width, alongY];
+  }
+
+  _curve(from, to) {
+    const [ax, ay] = from;
+    const [bx, by] = to;
+    const horizontal = Math.abs(bx - ax) >= Math.abs(by - ay);
+    const bend = horizontal ? (bx - ax) * 0.45 : (by - ay) * 0.45;
+    const c1 = horizontal ? [ax + bend, ay] : [ax, ay + bend];
+    const c2 = horizontal ? [bx - bend, by] : [bx, by - bend];
+    const round = (value) => Math.round(value * 10) / 10;
+    return `M${round(ax)},${round(ay)} C${round(c1[0])},${round(c1[1])} ${round(c2[0])},${round(c2[1])} ${round(bx)},${round(by)}`;
+  }
+
+  _drawFlows() {
+    const root = this.shadowRoot;
+    const topology = root?.querySelector(".topology");
+    const layer = root?.querySelector(".flow-layer");
+    if (!topology || !layer || !this._flowModel) return;
+    const container = topology.getBoundingClientRect();
+    if (!container.width || !container.height) return;
+    if (getComputedStyle(layer).display === "none") return;
+    layer.setAttribute("viewBox", `0 0 ${Math.round(container.width)} ${Math.round(container.height)}`);
+
+    const markup = this._flowModel
+      .map((flow) => {
+        const start = this._anchor(container, ...flow.from);
+        const end = this._anchor(container, ...flow.to);
+        if (!start || !end) return "";
+        const [from, to] = flow.reversed ? [end, start] : [start, end];
+        const path = this._curve(from, to);
+        return `<path class="flow-track" d="${path}"></path>${
+          flow.active
+            ? `<path class="flow-live flow-${flow.tone}" d="${path}"></path>`
+            : ""
+        }`;
+      })
+      .join("");
+    layer.innerHTML = markup;
   }
 
   _scheduleRenderAfterInteraction() {
