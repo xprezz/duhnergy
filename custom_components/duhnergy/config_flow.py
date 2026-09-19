@@ -19,13 +19,25 @@ from .const import (
 def _schema(current: dict) -> vol.Schema:
     fields: dict = {}
     for key, default in ENTITY_DEFAULTS.items():
+        domain = (
+            "weather"
+            if key == "weather"
+            else "sensor"
+            if key.startswith("solar_surface_") or key == "solar_today_energy"
+            else None
+        )
+        selector_config = (
+            EntitySelectorConfig(domain=domain)
+            if domain is not None
+            else EntitySelectorConfig()
+        )
         fields[
             vol.Optional(
                 key,
                 default=current.get(key, default),
                 description={"suggested_value": current.get(key, default)},
             )
-        ] = EntitySelector(EntitySelectorConfig())
+        ] = EntitySelector(selector_config)
     fields[vol.Optional("mode", default=current.get("mode", "shadow"))] = vol.In(MODES)
     for key, default in SETTING_DEFAULTS.items():
         if key == "mode":
@@ -37,6 +49,12 @@ def _schema(current: dict) -> vol.Schema:
     fields[
         vol.Optional("currency", default=current.get("currency", "DKK"))
     ] = vol.All(str, vol.Length(min=0, max=8))
+    fields[
+        vol.Optional(
+            "solar_surface_count",
+            default=current.get("solar_surface_count", 4),
+        )
+    ] = vol.All(vol.Coerce(int), vol.Range(min=1, max=4))
     fields[
         vol.Optional(
             "battery_power_positive",

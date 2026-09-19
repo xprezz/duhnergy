@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "duhnergy"
-PLATFORMS = ["sensor", "number", "select", "button"]
+PLATFORMS = ["sensor", "number", "select", "button", "switch"]
 
 MODE_SHADOW = "shadow"
 MODE_AUTO = "auto"
@@ -24,6 +24,12 @@ ENTITY_DEFAULTS = {
     "battery_soc": "sensor.solis_battery_soc",
     "battery_power": "sensor.solis_battery_power",
     "solar_power": "sensor.solis_total_pv_power",
+    "solar_surface_1": "sensor.solis_pv_power_1",
+    "solar_surface_2": "sensor.solis_pv_power_2",
+    "solar_surface_3": "sensor.solis_pv_power_3",
+    "solar_surface_4": "sensor.solis_pv_power_4",
+    "solar_today_energy": "sensor.solis_pv_today_energy_generation",
+    "weather": "weather.forecast_home",
     "house_power": "sensor.solis_household_load_power",
     "grid_power": "sensor.solis_grid_power_net",
     "house_energy": "sensor.solis_household_load_total_energy",
@@ -53,6 +59,12 @@ ENTITY_LABELS = {
     "battery_soc": "Battery SOC",
     "battery_power": "Battery power",
     "solar_power": "Solar power",
+    "solar_surface_1": "Solar surface 1 power",
+    "solar_surface_2": "Solar surface 2 power",
+    "solar_surface_3": "Solar surface 3 power",
+    "solar_surface_4": "Solar surface 4 power",
+    "solar_today_energy": "Solar production today",
+    "weather": "Current weather",
     "house_power": "House power",
     "grid_power": "Grid net power",
     "house_energy": "House cumulative energy",
@@ -93,7 +105,28 @@ OPTION_DEFAULTS = {
     "currency": "DKK",
     "battery_power_positive": "charge",
     "grid_power_positive": "import",
+    "solar_surface_count": 4,
 }
+
+BATTERY_PREFERENCES = {
+    "allow_battery_export": ("Allow battery export", "mdi:transmission-tower-export", True),
+    "price_based_discharge": ("Price based discharge", "mdi:cash-clock", True),
+    "grid_tou_charging": ("Grid TOU charging", "mdi:clock-time-four-outline", True),
+    "direct_grid_charging": ("Battery direct grid charging", "mdi:transmission-tower-import", False),
+    "stop_battery_charging": ("Stop battery charging", "mdi:battery-off-outline", False),
+}
+
+EV_PREFERENCES = {
+    "ev_charger_enabled": ("EV charger enabled", "mdi:ev-station", True),
+    "ev_solar_sync": ("EV solar charging sync", "mdi:solar-power-variant", True),
+    "ev_direct_grid_charging": ("EV direct grid charging", "mdi:transmission-tower-import", False),
+    "ev_direct_battery_charging": ("EV direct battery charging", "mdi:home-battery-outline", False),
+    "ev_schedule_enabled": ("EV schedule", "mdi:calendar-clock", False),
+}
+
+PREFERENCES = {**BATTERY_PREFERENCES, **EV_PREFERENCES}
+
+PREFERENCE_DEFAULTS = {key: value[2] for key, value in PREFERENCES.items()}
 
 SETTING_RANGES = {
     "hard_backup_reserve": (5.0, 95.0, 1.0, "%"),
@@ -107,7 +140,7 @@ SETTING_RANGES = {
 
 UPDATE_INTERVAL_SECONDS = 60
 CARD_URL = "/duhnergy/duhnergy-card.js"
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 
 def effective_config(data: dict, options: dict) -> dict:
@@ -116,6 +149,7 @@ def effective_config(data: dict, options: dict) -> dict:
         **ENTITY_DEFAULTS,
         **SETTING_DEFAULTS,
         **OPTION_DEFAULTS,
+        **PREFERENCE_DEFAULTS,
         **data,
         **options,
     }

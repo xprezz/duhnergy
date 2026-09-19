@@ -204,6 +204,11 @@ class DuhnergyPlanSensor(DuhnergyEntity, SensorEntity):
             "limitations": plan["limitations"],
             "source_entities": self.coordinator.data["source_entities"],
             "conventions": self.coordinator.data["conventions"],
+            "solar_surfaces": self.coordinator.data["solar_surfaces"],
+            "solar_today_energy_kwh": self.coordinator.data[
+                "solar_today_energy_kwh"
+            ],
+            "weather": self.coordinator.data["weather"],
         }
 
 
@@ -223,7 +228,7 @@ class DuhnergyForecastSensor(DuhnergyEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self):
-        """Return bounded normalized arrays and price summaries."""
+        """Return bounded normalised arrays and price summaries."""
         forecast = self.coordinator.data["forecast_24h"]
 
         def summary(values):

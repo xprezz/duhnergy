@@ -13,7 +13,7 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
 
 
 class DuhnergyModeSelect(DuhnergyEntity, SelectEntity):
-    """Select calculation/execution behavior."""
+    """Select calculation/execution behaviour."""
 
     _attr_name = "Mode"
     _attr_options = MODES
