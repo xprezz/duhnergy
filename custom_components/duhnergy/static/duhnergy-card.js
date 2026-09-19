@@ -24,6 +24,7 @@ class DuhnergyCard extends HTMLElement {
       ...config,
     };
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    if (!this._openMenus) this._openMenus = new Set();
     this._render();
     this.connectedCallback();
   }
@@ -217,37 +218,82 @@ class DuhnergyCard extends HTMLElement {
         ];
     const maximumSurfacePower = Math.max(1, ...surfaces.map((surface) => Number(surface.power_w) || 0));
 
+    const gridFlow = Math.abs(grid);
+    const batteryFlow = Math.abs(battery);
+    const gridExporting = gridFlow > 20 && !gridImporting;
+    const batteryDischarging = batteryFlow > 20 && !batteryCharging;
+    const solarSurplus = Math.max(0, solar - house);
+    // Exporting and importing are the more newsworthy states, so they are
+    // weighted slightly above raw solar harvest when ranking the headline mode.
+    const coreCandidates = [
+      ["solar", solar > 20 ? solar : 0],
+      ["export", gridExporting ? gridFlow * 1.35 : 0],
+      ["import", gridImporting && gridFlow > 20 ? gridFlow * 1.35 : 0],
+      ["battery", batteryDischarging ? batteryFlow : 0],
+      ["charging", batteryCharging && batteryFlow > 20 ? batteryFlow : 0],
+    ].sort((a, b) => b[1] - a[1]);
+    const coreMode = coreCandidates[0][1] > 0 ? coreCandidates[0][0] : "idle";
+    const coreSummary = {
+      solar: "Harvesting solar",
+      export: "Exporting to grid",
+      import: "Drawing from grid",
+      battery: "Discharging battery",
+      charging: "Charging battery",
+      idle: "Standing by",
+    }[coreMode];
+
+    // Colour the battery link by what is driving it, and the household link
+    // by whichever source is currently supplying most of the load.
+    const batteryTone = batteryCharging
+      ? solarSurplus > gridFlow
+        ? "solar"
+        : "grid"
+      : "battery";
+    const homeTone = currentSupply.length
+      ? { Solar: "solar", Battery: "battery", Grid: "grid" }[
+          currentSupply.slice().sort((a, b) => b[1] - a[1])[0][0]
+        ]
+      : "idle";
+    const evTone = solarSurplus > 20 ? "solar" : gridImporting ? "grid" : "battery";
+
     this._flowModel = [
       ...surfaces.map((surface, index) => ({
         from: [`.surface-card:nth-of-type(${index + 1})`, "bottom", 0.5],
-        to: [".core-node", "top", (index + 0.5) / surfaces.length],
+        to: [".solar-merge", "center", (index + 0.5) / surfaces.length],
         tone: "solar",
         active: Number(surface.power_w) > 20,
       })),
       {
-        from: [".grid-node", "right", 0.3],
-        to: [".core-node", "left", 0.28],
+        from: [".solar-merge", "center", 0.5],
+        to: [".core-node", "top", 0.5],
+        tone: "solar",
+        trunk: true,
+        active: solar > 20,
+      },
+      {
+        from: [".grid-node", "right", 0.5],
+        to: [".core-node", "left", 0.3],
         tone: "grid",
-        active: Math.abs(grid) > 20,
+        active: gridFlow > 20,
         reversed: !gridImporting,
       },
       {
         from: [".battery-node", "right", 0.5],
-        to: [".core-node", "left", 0.72],
-        tone: "battery",
-        active: Math.abs(battery) > 20,
+        to: [".core-node", "left", 0.75],
+        tone: batteryTone,
+        active: batteryFlow > 20,
         reversed: batteryCharging,
       },
       {
-        from: [".core-node", "right", 0.28],
-        to: [".home-node", "left", 0.3],
-        tone: "home",
+        from: [".core-node", "right", 0.3],
+        to: [".home-node", "left", 0.5],
+        tone: homeTone,
         active: house > 20,
       },
       {
-        from: [".core-node", "right", 0.72],
+        from: [".core-node", "right", 0.75],
         to: [".ev-node", "left", 0.5],
-        tone: "ev",
+        tone: evTone,
         active: ev > 20,
       },
     ];
@@ -321,27 +367,27 @@ class DuhnergyCard extends HTMLElement {
         </div>
       </div>
 
-      <div class="topology-node detail-node grid-node ${Math.abs(grid) > 20 ? "active-grid" : ""}" data-entity="sensor.duhnergy_grid_net_power" role="button" tabindex="0">
+      <div class="solar-merge" aria-hidden="true"></div>
+
+      <div class="topology-node detail-node grid-node ${gridFlow > 20 ? "active-grid" : ""}" data-entity="sensor.duhnergy_grid_net_power" role="button" tabindex="0">
         <div class="node-heading">
-          <div><span>Grid</span><strong>${gridDirection}</strong></div>
+          <div><span>Grid</span><strong>${gridDirection}${gridFlow > 20 ? ` ${this._format(gridFlow / 1000, 1)} kW` : ""}</strong></div>
           <div class="icon-orb"><ha-icon icon="mdi:transmission-tower"></ha-icon></div>
         </div>
-        <div class="node-pills">
-          <div class="node-pill live"><span>Now</span><strong>${gridDirection} ${this._format(Math.abs(grid) / 1000, 1)} kW</strong></div>
-          <div class="node-pill" data-entity="sensor.duhnergy_lifetime_grid_import" role="button" tabindex="0"><span>Imported today</span><strong>${this._format(importedToday, 1)} kWh</strong><small>${this._format(importCostToday, 2)} ${this._escape(currency)} cost</small></div>
-          <div class="node-pill earning" data-entity="sensor.duhnergy_lifetime_grid_export" role="button" tabindex="0"><span>Exported today</span><strong>${this._format(exportedToday, 1)} kWh</strong><small>${this._format(exportRevenueToday, 2)} ${this._escape(currency)} earned</small></div>
+        <div class="node-pills compact">
+          <div class="node-pill" data-entity="sensor.duhnergy_lifetime_grid_import" role="button" tabindex="0"><span>Imported</span><strong>${this._format(importedToday, 1)} kWh</strong><small>${this._format(importCostToday, 2)} ${this._escape(currency)}</small></div>
+          <div class="node-pill earning" data-entity="sensor.duhnergy_lifetime_grid_export" role="button" tabindex="0"><span>Exported</span><strong>${this._format(exportedToday, 1)} kWh</strong><small>${this._format(exportRevenueToday, 2)} ${this._escape(currency)}</small></div>
         </div>
       </div>
 
-      <div class="topology-node core-node" data-entity="${this._escape(this.config.status_entity)}" role="button" tabindex="0">
-        <span>Smart Brain</span>
+      <div class="topology-node core-node core-${coreMode}" data-entity="${this._escape(this.config.status_entity)}" role="button" tabindex="0" title="${this._escape(coreSummary)}">
         <div class="core-icon brain-icon">
           <i class="electron electron-one"></i><i class="electron electron-two"></i>
           <i class="electron electron-three"></i><i class="electron electron-four"></i>
           <ha-icon icon="mdi:brain"></ha-icon>
         </div>
-        <strong>${this._format(flowPower, 1)} kW flow</strong>
-        <em>${this._escape(this._label(this._value(this.config.plan_entity, "idle")))}</em>
+        <span>Smart Brain</span>
+        <em>${this._escape(coreSummary)}</em>
       </div>
 
       <div class="topology-node detail-node home-node" data-entity="sensor.duhnergy_house_power" role="button" tabindex="0">
@@ -349,36 +395,80 @@ class DuhnergyCard extends HTMLElement {
           <div><span>Household</span><strong>${this._format(house / 1000, 1)} kW now</strong></div>
           <div class="icon-orb"><ha-icon icon="mdi:home-lightning-bolt"></ha-icon></div>
         </div>
-        <div class="node-pills">
+        <div class="node-pills compact">
           <div class="node-pill live"><span>Supplied by</span><strong>${this._escape(supplyLabel)}</strong><small>${this._escape(supplySummary)}</small></div>
-          <div class="node-pill" data-entity="sensor.duhnergy_lifetime_household_consumption" role="button" tabindex="0"><span>Consumed today</span><strong>${this._format(householdToday, 1)} kWh</strong>
-            <div class="source-pills" aria-label="Estimated household consumption by source today">
+          <div class="node-pill" data-entity="sensor.duhnergy_lifetime_household_consumption" role="button" tabindex="0"><span>Used today</span><strong>${this._format(householdToday, 1)} kWh</strong>
+            <div class="source-pills" aria-label="Estimated household consumption by source today, in kWh">
               <span><b>Solar</b>${this._format(estimatedSolarToHouse, 1)}</span>
-              <span><b>Battery</b>${this._format(estimatedBatteryToHouse, 1)}</span>
+              <span><b>Batt</b>${this._format(estimatedBatteryToHouse, 1)}</span>
               <span><b>Grid</b>${this._format(estimatedGridToHouse, 1)}</span>
               ${estimatedOtherToHouse > 0.05 ? `<span><b>Other</b>${this._format(estimatedOtherToHouse, 1)}</span>` : ""}
             </div>
-            <small class="estimate-note">kWh by source, estimated from measured balances</small>
           </div>
         </div>
       </div>
 
-      <div class="topology-node ev-node" data-entity="sensor.duhnergy_ev_power" role="button" tabindex="0">
-        <div class="ev-summary">
-          <ha-icon icon="mdi:car-electric"></ha-icon>
-          <div><span>EV charger</span><strong>${ev > 20 ? `${this._format(ev / 1000, 1)} kW charging` : "Idle"}</strong><small>${this._format(evToday, 1)} kWh charged today</small></div>
-        </div>
+      <div class="node-cluster ev-node ${ev > 20 ? "active-ev" : ""}">
+        <button class="topology-node cluster-face" type="button" data-menu="ev" aria-expanded="${this._menuOpen("ev")}">
+          <div class="icon-orb"><ha-icon icon="mdi:car-electric"></ha-icon></div>
+          <div class="cluster-copy"><span>EV charger</span><strong>${ev > 20 ? `${this._format(ev / 1000, 1)} kW charging` : "Idle"}</strong><em>${this._format(evToday, 1)} kWh today</em></div>
+          <ha-icon class="cluster-chevron" icon="mdi:chevron-down"></ha-icon>
+        </button>
+        ${this._preferenceMenu("ev", [
+          ["switch.duhnergy_ev_charger_enabled", "Stop / start charger", "mdi:ev-station"],
+          ["switch.duhnergy_ev_solar_charging_sync", "Solar charging sync", "mdi:solar-power-variant"],
+          ["switch.duhnergy_ev_direct_grid_charging", "Direct grid charging", "mdi:transmission-tower-import"],
+          ["switch.duhnergy_ev_direct_battery_charging", "Direct battery charging", "mdi:home-battery-outline"],
+          ["switch.duhnergy_ev_schedule", "Enable schedule", "mdi:calendar-clock"],
+        ])}
       </div>
 
-      <div class="topology-node battery-node ${Math.abs(battery) > 20 ? "active-battery" : ""}" data-entity="sensor.duhnergy_battery_power" role="button" tabindex="0">
-        <div class="icon-orb"><ha-icon icon="${batteryCharging ? "mdi:battery-charging" : "mdi:battery"}"></ha-icon></div>
-        <div>
-          <span>Home battery</span>
-          <strong>${batteryDirection} ${Math.abs(battery) < 20 ? "" : `${this._format(Math.abs(battery) / 1000, 1)} kW`}</strong>
-          <em>Reserve protection active</em>
-        </div>
-        <div class="soc"><b>${this._format(soc, 0)}%</b><i><u style="width:${Math.min(100, Math.max(0, soc))}%"></u></i></div>
+      <div class="node-cluster battery-node ${batteryFlow > 20 ? "active-battery" : ""}">
+        <button class="topology-node cluster-face battery-face" type="button" data-menu="battery" aria-expanded="${this._menuOpen("battery")}">
+          <div class="icon-orb"><ha-icon icon="${batteryCharging ? "mdi:battery-charging-high" : "mdi:home-battery"}"></ha-icon></div>
+          <div class="cluster-copy">
+            <span>Home battery</span>
+            <strong>${batteryDirection}${batteryFlow < 20 ? "" : ` ${this._format(batteryFlow / 1000, 1)} kW`}</strong>
+            <em>${this._format(batteryChargedToday, 1)} in · ${this._format(batteryDischargedToday, 1)} out kWh</em>
+          </div>
+          <div class="soc"><span class="soc-label">State of charge<b>${this._format(soc, 0)}%</b></span><i><u style="width:${Math.min(100, Math.max(0, soc))}%"></u></i></div>
+          <ha-icon class="cluster-chevron" icon="mdi:chevron-down"></ha-icon>
+        </button>
+        ${this._preferenceMenu("battery", [
+          ["switch.duhnergy_allow_battery_export", "Allow battery export", "mdi:transmission-tower-export"],
+          ["switch.duhnergy_price_based_discharge", "Price based discharge", "mdi:cash-clock"],
+          ["switch.duhnergy_grid_tou_charging", "Grid TOU charging", "mdi:clock-time-four-outline"],
+          ["switch.duhnergy_battery_direct_grid_charging", "Direct grid charging", "mdi:transmission-tower-import"],
+          ["switch.duhnergy_stop_battery_charging", "Stop battery charging", "mdi:battery-off-outline"],
+        ])}
       </div>
+    </div>`;
+  }
+
+  _menuOpen(name) {
+    return this._openMenus?.has(name) ? "true" : "false";
+  }
+
+  _preferenceMenu(name, rows) {
+    const open = this._openMenus?.has(name);
+    return `<div class="cluster-menu ${open ? "open" : ""}" ${open ? "" : "hidden"}>
+      ${rows
+        .map(([entityId, label, icon]) => {
+          const state = this._state(entityId);
+          if (!state) {
+            return `<div class="menu-row unavailable"><ha-icon icon="${icon}"></ha-icon><span>${this._escape(
+              label,
+            )}</span><b>Not set up</b></div>`;
+          }
+          const on = state.state === "on";
+          return `<button class="menu-row ${on ? "on" : ""}" type="button" role="switch" aria-checked="${on}" data-toggle="${this._escape(
+            entityId,
+          )}"><ha-icon icon="${icon}"></ha-icon><span>${this._escape(
+            label,
+          )}</span><i class="menu-switch" aria-hidden="true"></i></button>`;
+        })
+        .join("")}
+      <div class="menu-foot">Planner preferences · stored with Duhnergy!</div>
     </div>`;
   }
 
@@ -650,6 +740,8 @@ class DuhnergyCard extends HTMLElement {
           --green: #34d99f;
           --green-soft: rgba(52, 217, 159, .14);
           --blue: #5aa9ff;
+          --violet: #b08bff;
+          --coral: #ff7a6b;
           --red: #ff6b6b;
 
           --f1: 12px;
@@ -712,7 +804,7 @@ class DuhnergyCard extends HTMLElement {
         .mode-chip select { width: 100%; min-width: 92px; margin-top: 1px; padding: 0; border: 0; color: var(--cyan); background: transparent; cursor: pointer; font-size: var(--f3); font-weight: 700; text-transform: capitalize; }
         .mode-chip option { color: var(--text); background: var(--petroleum); }
 
-        .workspace { flex: 1 1 auto; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "flow solar plan" "flow price log"; gap: var(--s3); min-height: 0; height: clamp(520px, calc(100vh - 200px), 900px); }
+        .workspace { flex: 1 1 auto; display: grid; grid-template-columns: minmax(0, 3.1fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "flow solar plan" "flow price log"; gap: var(--s3); min-height: 0; height: clamp(560px, calc(100vh - 170px), 900px); }
         .flow-panel { grid-area: flow; }
         .solar-panel { grid-area: solar; }
         .price-panel { grid-area: price; }
@@ -741,15 +833,19 @@ class DuhnergyCard extends HTMLElement {
         .mode-box option { color: var(--text); background: var(--petroleum); }
         .main-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(310px, 1fr); gap: var(--s5); }
         .flow-panel .panel-body { display: flex; flex-direction: column; padding: var(--s3); overflow-y: auto; overscroll-behavior: contain; }
-        .topology { position: relative; flex: 1 1 auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(124px, .58fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; grid-template-areas: "solar solar solar" "grid core home" "battery core ev"; align-content: stretch; gap: var(--s2); }
+        .topology { position: relative; flex: 1 1 auto; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(118px, .4fr) minmax(0, 1.15fr); grid-template-rows: auto minmax(40px, .72fr) auto minmax(10px, .3fr) minmax(150px, .92fr) minmax(0, .14fr); grid-template-areas: "solar solar solar" "merge merge merge" "grid core home" ". core ." "battery core ev" ". . ."; align-content: stretch; gap: var(--s2) var(--s3); }
+        .solar-merge { grid-area: merge; pointer-events: none; }
         .flow-layer { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
         .flow-track { fill: none; stroke: var(--line-strong); stroke-width: 2; stroke-linecap: round; }
+        .flow-track.trunk { stroke-width: 3.5; }
         .flow-live { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 2 11; animation: flow-move 1.5s linear infinite; }
+        .flow-live.trunk { stroke-width: 5; stroke-dasharray: 3 12; }
         .flow-solar { stroke: var(--amber); }
         .flow-grid { stroke: var(--green); }
         .flow-home { stroke: var(--cyan); }
-        .flow-battery { stroke: var(--green); }
+        .flow-battery { stroke: var(--violet); }
         .flow-ev { stroke: var(--blue); }
+        .flow-idle { stroke: var(--line-strong); }
         @keyframes flow-move { to { stroke-dashoffset: -26; } }
         .solar-array { grid-area: solar; position: relative; z-index: 1; display: grid; grid-template-columns: minmax(148px, .64fr) minmax(0, 1.36fr); gap: var(--s2) var(--s3); }
         .weather-production { display: contents; }
@@ -801,43 +897,82 @@ class DuhnergyCard extends HTMLElement {
         .node-pill strong { display: block; margin-top: 3px; font-size: 15px; }
         .node-pill small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.35; }
         .node-pill > span { display: block; color: var(--muted); font-size: var(--f1); font-weight: 600; letter-spacing: .4px; text-transform: uppercase; }
-        .node-pill > strong { display: block; margin-top: 1px; font-size: var(--f3); font-weight: 650; }
-        .node-pill > small { display: block; color: var(--muted); font-size: var(--f1); font-weight: 600; line-height: 1.35; }
+        .node-pill > strong { display: block; margin-top: 1px; overflow: hidden; font-size: var(--f3); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+        .node-pill > small { display: block; overflow: hidden; color: var(--muted); font-size: var(--f1); font-weight: 600; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
         .node-pill.live strong { color: var(--cyan); }
         .node-pill.earning strong { color: var(--green); }
+        .node-pills.compact { gap: 5px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+        .home-node .node-pills.compact { grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); }
         .source-pills { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 3px; margin-top: var(--s1); }
         .source-pills span { padding: 4px 2px; border-radius: 7px; background: rgba(0, 0, 0, .3); color: var(--text); font-size: var(--f1); font-weight: 650; text-align: center; text-transform: none; }
         .source-pills b { display: block; margin-bottom: 1px; color: var(--muted); font-size: var(--f1); font-weight: 600; }
         .estimate-note { display: block; margin-top: 3px; color: var(--muted); font-size: var(--f1); line-height: 1.3; }
-        .core-node { grid-area: core; align-self: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: var(--s3) var(--s3); text-align: center; border-color: rgba(42, 212, 234, .3); background: radial-gradient(120% 90% at 50% 0%, rgba(42, 212, 234, .14), rgba(0, 0, 0, .18)); box-shadow: var(--shadow-flat), 0 0 26px rgba(42, 212, 234, .14); }
-        .core-node > span { color: var(--cyan); font-weight: 700; letter-spacing: .7px; }
-        .core-node .core-icon { position: relative; display: grid; place-items: center; width: 62px; height: 62px; margin: var(--s2) 0; overflow: visible; border-radius: 50%; color: #06222a; background: linear-gradient(145deg, var(--cyan), #159fbb); box-shadow: 0 0 26px rgba(42, 212, 234, .35); }
-        .core-node .core-icon ha-icon { --mdc-icon-size: 32px; }
-        .electron { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); opacity: 0; pointer-events: none; }
+
+        .core-node { grid-area: core; align-self: center; justify-self: center; width: min(100%, 152px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: var(--s3) var(--s2); text-align: center; border-color: var(--core-ring); background: radial-gradient(125% 95% at 50% 0%, var(--core-wash), rgba(0, 0, 0, .2)); box-shadow: var(--shadow-flat), 0 0 30px var(--core-glow); transition: border-color .4s ease, box-shadow .4s ease, background .4s ease; --core-accent: var(--cyan); --core-ring: rgba(42, 212, 234, .34); --core-wash: rgba(42, 212, 234, .14); --core-glow: rgba(42, 212, 234, .16); }
+        .core-node.core-solar { --core-accent: var(--amber); --core-ring: rgba(255, 182, 61, .4); --core-wash: rgba(255, 182, 61, .16); --core-glow: rgba(255, 182, 61, .2); }
+        .core-node.core-export { --core-accent: var(--green); --core-ring: rgba(52, 217, 159, .4); --core-wash: rgba(52, 217, 159, .16); --core-glow: rgba(52, 217, 159, .2); }
+        .core-node.core-import { --core-accent: var(--coral); --core-ring: rgba(255, 122, 107, .4); --core-wash: rgba(255, 122, 107, .16); --core-glow: rgba(255, 122, 107, .2); }
+        .core-node.core-battery, .core-node.core-charging { --core-accent: var(--violet); --core-ring: rgba(176, 139, 255, .4); --core-wash: rgba(176, 139, 255, .16); --core-glow: rgba(176, 139, 255, .2); }
+        .core-node > span { color: var(--core-accent); font-size: var(--f2); font-weight: 700; letter-spacing: .6px; text-transform: uppercase; transition: color .4s ease; }
+        .core-node em { display: block; color: var(--muted); font-size: var(--f1); font-style: normal; font-weight: 600; line-height: 1.3; }
+        .core-node .core-icon { position: relative; display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: var(--s1); overflow: visible; border-radius: 50%; color: #06222a; background: linear-gradient(145deg, var(--core-accent), color-mix(in srgb, var(--core-accent) 62%, #000)); box-shadow: 0 0 24px var(--core-glow); transition: background .4s ease; }
+        .core-node .core-icon ha-icon { --mdc-icon-size: 28px; }
+        .electron { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--core-accent); box-shadow: 0 0 8px var(--core-accent); opacity: 0; pointer-events: none; }
         .electron-one { animation: electron-one 1.9s ease-out infinite; }
         .electron-two { animation: electron-two 2.2s .45s ease-out infinite; }
         .electron-three { animation: electron-three 2s .85s ease-out infinite; }
         .electron-four { animation: electron-four 2.3s 1.2s ease-out infinite; }
-        @keyframes electron-one { 0% { transform: translate(-8px,-6px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(-38px,-32px) scale(1); opacity: 0; } }
-        @keyframes electron-two { 0% { transform: translate(7px,-7px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(40px,-28px) scale(1); opacity: 0; } }
-        @keyframes electron-three { 0% { transform: translate(-7px,6px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(-41px,29px) scale(1); opacity: 0; } }
-        @keyframes electron-four { 0% { transform: translate(8px,5px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(40px,32px) scale(1); opacity: 0; } }
-        .core-node strong { font-size: var(--f5); font-weight: 700; }
-        .core-node em { color: var(--cyan); text-transform: capitalize; }
-        .home-node { grid-area: home; }
-        .ev-node { grid-area: ev; align-self: end; padding: var(--s2) var(--s3); }
-        .ev-summary { display: flex; align-items: center; gap: var(--s3); }
-        .ev-summary > ha-icon { flex: 0 0 auto; color: var(--blue); --mdc-icon-size: 26px; }
-        .ev-summary > div { min-width: 0; }
-        .ev-summary strong { color: var(--blue); }
-        .ev-summary small { display: block; margin-top: 1px; color: var(--muted); font-size: var(--f1); font-weight: 600; }
-        .battery-node { grid-area: battery; align-self: end; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3); }
-        .active-battery .icon-orb, .battery-node .icon-orb { color: var(--green); background: rgba(52, 217, 159, .12); }
-        .active-battery strong { color: var(--green); }
-        .soc { min-width: 56px; text-align: right; }
+        @keyframes electron-one { 0% { transform: translate(-6px,-5px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(-26px,-22px) scale(1); opacity: 0; } }
+        @keyframes electron-two { 0% { transform: translate(6px,-6px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(27px,-20px) scale(1); opacity: 0; } }
+        @keyframes electron-three { 0% { transform: translate(-6px,5px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(-28px,20px) scale(1); opacity: 0; } }
+        @keyframes electron-four { 0% { transform: translate(6px,4px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(27px,22px) scale(1); opacity: 0; } }
+
+        .home-node { grid-area: home; align-self: start; }
+        .grid-node { align-self: start; }
+
+        .node-cluster { position: relative; z-index: 2; display: flex; flex-direction: column; align-self: start; }
+        .ev-node { grid-area: ev; }
+        .battery-node { grid-area: battery; align-self: stretch; }
+        .battery-face { flex: 1 1 auto; min-height: 0; align-content: center; }
+        .cluster-face { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--s3); width: 100%; padding: var(--s3) var(--s6) var(--s3) var(--s3); border-radius: var(--r2); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+        .cluster-face:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+        .cluster-copy { min-width: 0; }
+        .cluster-copy span { display: block; color: var(--muted); font-size: var(--f1); font-weight: 600; letter-spacing: .5px; text-transform: uppercase; }
+        .cluster-copy strong { display: block; margin-top: 1px; font-size: var(--f4); font-weight: 650; }
+        .cluster-copy em { display: block; margin-top: 2px; color: var(--muted); font-size: var(--f1); font-style: normal; font-weight: 600; }
+        .cluster-chevron { position: absolute; top: 50%; right: 6px; margin-top: -10px; color: var(--muted); transition: transform .22s ease; --mdc-icon-size: 20px; }
+        .cluster-face[aria-expanded="true"] .cluster-chevron { transform: rotate(180deg); }
+        .battery-node .icon-orb { width: 46px; height: 46px; color: var(--violet); background: rgba(176, 139, 255, .14); }
+        .battery-node .icon-orb ha-icon { --mdc-icon-size: 26px; }
+        .battery-face { grid-template-columns: auto minmax(0, 1fr); padding: var(--s3) var(--s6) var(--s3) var(--s3); }
+        .battery-face .cluster-copy strong { font-size: var(--f5); }
+        .battery-face .soc { grid-column: 1 / -1; min-width: 0; margin-top: 2px; text-align: left; }
+        .battery-face .soc b { font-size: var(--f4); }
+        .battery-face .soc i { width: 100%; height: 6px; }
+        .active-battery .cluster-copy strong { color: var(--violet); }
+        .ev-node .icon-orb { color: var(--blue); background: rgba(90, 169, 255, .14); }
+        .active-ev .cluster-copy strong { color: var(--blue); }
+        .cluster-menu { display: grid; gap: 3px; margin-top: 5px; padding: var(--s2); border: 1px solid var(--line); border-radius: var(--r2); background: linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(0, 0, 0, .3)); box-shadow: var(--shadow-small); }
+        .cluster-menu[hidden] { display: none; }
+        .menu-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 34px; align-items: center; gap: var(--s2); width: 100%; padding: 7px var(--s2); border: 0; border-radius: var(--r1); background: rgba(0, 0, 0, .22); color: var(--text); font: inherit; font-size: var(--f2); font-weight: 600; text-align: left; cursor: pointer; }
+        .menu-row ha-icon { color: var(--muted); --mdc-icon-size: 18px; }
+        .menu-row:hover { background: rgba(255, 255, 255, .06); }
+        .menu-row:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+        .menu-row.on ha-icon { color: var(--cyan); }
+        .menu-switch { position: relative; display: block; width: 34px; height: 19px; border-radius: 99px; background: rgba(255, 255, 255, .14); transition: background .2s ease; }
+        .menu-switch:after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #dbe7ec; transition: transform .2s ease; }
+        .menu-row.on .menu-switch { background: var(--cyan); }
+        .menu-row.on .menu-switch:after { transform: translateX(15px); }
+        .menu-row.unavailable { cursor: default; opacity: .65; }
+        .menu-row.unavailable b { grid-column: 3; color: var(--muted); font-size: var(--f1); font-weight: 600; white-space: nowrap; }
+        .menu-foot { padding: 3px var(--s2) 0; color: var(--muted); font-size: var(--f1); }
+
+        .soc { min-width: 54px; text-align: right; }
         .soc b { font-size: var(--f5); font-weight: 700; }
-        .soc i { display: block; width: 56px; height: 5px; margin-top: 4px; overflow: hidden; border-radius: 99px; background: rgba(0, 0, 0, .4); }
-        .soc u { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #1fb98a, var(--green)); text-decoration: none; transition: width .5s ease; }
+        .soc i { display: block; width: 54px; height: 5px; margin-top: 4px; overflow: hidden; border-radius: 99px; background: rgba(0, 0, 0, .4); }
+        .battery-face .soc-label { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); color: var(--muted); font-size: var(--f1); font-weight: 600; }
+        .cluster-copy em, .cluster-copy strong, .cluster-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .soc u { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #7c5cf0, var(--violet)); text-decoration: none; transition: width .5s ease; }
 
         .control-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: var(--s2); padding: 0 var(--s4) var(--s4); }
         .setting-row, .slider-row { border: 1px solid var(--line); border-radius: var(--r2); background: rgba(0, 0, 0, .2); }
@@ -918,6 +1053,9 @@ class DuhnergyCard extends HTMLElement {
         @container card (max-width: 1080px) {
           .workspace { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); grid-template-rows: minmax(300px, 1.25fr) minmax(190px, .75fr) minmax(190px, .75fr); grid-template-areas: "flow solar" "flow price" "plan log"; height: auto; }
           .metric-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+          .topology { grid-template-columns: minmax(0, 1.25fr) minmax(104px, .3fr) minmax(0, 1.25fr); }
+          .cluster-copy strong, .cluster-copy em, .node-pill > strong, .node-pill > small { overflow: visible; white-space: normal; }
+          .node-pills.compact, .home-node .node-pills.compact { grid-template-columns: minmax(0, 1fr); }
         }
         @container card (max-width: 900px) {
           .stats-strip { grid-template-columns: minmax(0, 1fr); }
@@ -1094,6 +1232,22 @@ class DuhnergyCard extends HTMLElement {
         this._render();
       }),
     );
+    this.shadowRoot.querySelectorAll("[data-menu]").forEach((button) =>
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const name = button.dataset.menu;
+        if (!this._openMenus) this._openMenus = new Set();
+        if (this._openMenus.has(name)) this._openMenus.delete(name);
+        else this._openMenus.add(name);
+        this._render();
+      }),
+    );
+    this.shadowRoot.querySelectorAll("[data-toggle]").forEach((button) =>
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this._hass.callService("switch", "toggle", { entity_id: button.dataset.toggle });
+      }),
+    );
     this.shadowRoot.querySelectorAll("details[data-section]").forEach((details) => {
       const remembered = openSections.get(details.dataset.section);
       details.open = remembered === undefined ? details.hasAttribute("open") : remembered;
@@ -1141,6 +1295,7 @@ class DuhnergyCard extends HTMLElement {
     const alongY = y + box.height * position;
     if (side === "top") return [alongX, y];
     if (side === "bottom") return [alongX, y + box.height];
+    if (side === "center") return [x + box.width / 2, y + box.height / 2];
     if (side === "left") return [x, alongY];
     return [x + box.width, alongY];
   }
@@ -1173,9 +1328,9 @@ class DuhnergyCard extends HTMLElement {
         if (!start || !end) return "";
         const [from, to] = flow.reversed ? [end, start] : [start, end];
         const path = this._curve(from, to);
-        return `<path class="flow-track" d="${path}"></path>${
+        return `<path class="flow-track${flow.trunk ? " trunk" : ""}" d="${path}"></path>${
           flow.active
-            ? `<path class="flow-live flow-${flow.tone}" d="${path}"></path>`
+            ? `<path class="flow-live flow-${flow.tone}${flow.trunk ? " trunk" : ""}" d="${path}"></path>`
             : ""
         }`;
       })

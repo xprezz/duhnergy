@@ -253,6 +253,8 @@ def build_plan(
     forecast_margin = float(settings["solar_forecast_margin"])
     demand = float(settings["household_daily_demand"])
     grid_current = float(settings["grid_current_limit"])
+    allow_battery_export = bool(settings.get("allow_battery_export", True))
+    stop_battery_charging = bool(settings.get("stop_battery_charging", False))
 
     battery_above_reserve = max(0.0, (soc - reserve) / 100 * capacity)
     battery_above_export_stop = max(0.0, (soc - export_stop) / 100 * capacity)
@@ -273,7 +275,7 @@ def build_plan(
 
     import_periods = within_horizon(normalize_prices(import_forecast, now))
     usable_charge_kw = max(1.4, min(11.0, grid_current * 230 / 1000))
-    if deficit_kwh > 0 and import_periods:
+    if deficit_kwh > 0 and import_periods and not stop_battery_charging:
         required_hours = deficit_kwh / usable_charge_kw
         window = _best_contiguous_window(import_periods, required_hours, cheapest=True)
         if window:
@@ -294,7 +296,7 @@ def build_plan(
         if period.price > 0
     ]
     exportable_kwh = min(surplus_kwh, battery_above_export_stop)
-    if exportable_kwh > 0 and sale_periods:
+    if exportable_kwh > 0 and sale_periods and allow_battery_export:
         discharge_kw = min(5.0, usable_charge_kw)
         window = _best_contiguous_window(
             sale_periods, exportable_kwh / discharge_kw, cheapest=False

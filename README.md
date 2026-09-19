@@ -112,6 +112,28 @@ data:
 | Household daily demand | 12 kWh | Expected demand over the next 24 hours |
 | Grid current limit | 25 A | Shared single-phase import limit for EV throttling |
 
+## Battery and EV preference switches
+
+Tapping the **Home battery** or **EV charger** node on the card opens a sub-menu of
+switch entities created by the integration (`switch.duhnergy_…`). They persist in the
+config entry options and survive restarts.
+
+| Switch | Wired into the planner? |
+|---|---|
+| Allow battery export | **Yes** — turning it off suppresses all planned battery export |
+| Stop battery charging | **Yes** — turning it on suppresses planned grid charging of the battery |
+| Price based discharge | No — stored preference only |
+| Grid TOU charging | No — stored preference only |
+| Battery direct grid charging | No — stored preference only |
+| Stop / start charger | No — stored preference only |
+| EV solar charging sync | No — stored preference only |
+| EV direct grid charging | No — stored preference only |
+| EV direct battery charging | No — stored preference only |
+| EV schedule | No — stored preference only |
+
+The switches marked *No* are surfaced and remembered, but do not yet change planner
+output. Do not rely on them as safety interlocks.
+
 ## Honest limitations
 
 - Forecasting remains deterministic. Household demand is not time-shaped; conversion losses, weather confidence beyond the margin, seasonal behaviour, tariff components, and required EV energy are not modelled.

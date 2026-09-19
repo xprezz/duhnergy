@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "duhnergy"
-PLATFORMS = ["sensor", "number", "select", "button"]
+PLATFORMS = ["sensor", "number", "select", "button", "switch"]
 
 MODE_SHADOW = "shadow"
 MODE_AUTO = "auto"
@@ -108,6 +108,26 @@ OPTION_DEFAULTS = {
     "solar_surface_count": 4,
 }
 
+BATTERY_PREFERENCES = {
+    "allow_battery_export": ("Allow battery export", "mdi:transmission-tower-export", True),
+    "price_based_discharge": ("Price based discharge", "mdi:cash-clock", True),
+    "grid_tou_charging": ("Grid TOU charging", "mdi:clock-time-four-outline", True),
+    "direct_grid_charging": ("Battery direct grid charging", "mdi:transmission-tower-import", False),
+    "stop_battery_charging": ("Stop battery charging", "mdi:battery-off-outline", False),
+}
+
+EV_PREFERENCES = {
+    "ev_charger_enabled": ("EV charger enabled", "mdi:ev-station", True),
+    "ev_solar_sync": ("EV solar charging sync", "mdi:solar-power-variant", True),
+    "ev_direct_grid_charging": ("EV direct grid charging", "mdi:transmission-tower-import", False),
+    "ev_direct_battery_charging": ("EV direct battery charging", "mdi:home-battery-outline", False),
+    "ev_schedule_enabled": ("EV schedule", "mdi:calendar-clock", False),
+}
+
+PREFERENCES = {**BATTERY_PREFERENCES, **EV_PREFERENCES}
+
+PREFERENCE_DEFAULTS = {key: value[2] for key, value in PREFERENCES.items()}
+
 SETTING_RANGES = {
     "hard_backup_reserve": (5.0, 95.0, 1.0, "%"),
     "export_stop_soc": (5.0, 100.0, 1.0, "%"),
@@ -129,6 +149,7 @@ def effective_config(data: dict, options: dict) -> dict:
         **ENTITY_DEFAULTS,
         **SETTING_DEFAULTS,
         **OPTION_DEFAULTS,
+        **PREFERENCE_DEFAULTS,
         **data,
         **options,
     }
