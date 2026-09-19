@@ -268,7 +268,7 @@ class DuhnergyCard extends HTMLElement {
             ${this._productionPill(
               "sensor.duhnergy_solar_power",
               "mdi:solar-power",
-              "Producing now",
+              "Now",
               this._format(solar / 1000, 1),
               "kW",
               "live",
@@ -276,14 +276,14 @@ class DuhnergyCard extends HTMLElement {
             ${this._productionPill(
               solarToday || "sensor.duhnergy_forecast_solar_energy",
               "mdi:weather-sunny",
-              "Forecast today",
+              "Forecast",
               solarToday ? this._value(solarToday) : this._value("sensor.duhnergy_forecast_solar_energy"),
               solarToday ? this._unit(solarToday, "kWh") : "kWh",
             )}
             ${this._productionPill(
               solarTodayEnergy || "sensor.duhnergy_lifetime_solar_production",
               "mdi:counter",
-              "Produced today",
+              "Today",
               planAttributes.solar_today_energy_kwh == null
                 ? "—"
                 : this._format(planAttributes.solar_today_energy_kwh, 1),
@@ -327,7 +327,7 @@ class DuhnergyCard extends HTMLElement {
           <div class="icon-orb"><ha-icon icon="mdi:transmission-tower"></ha-icon></div>
         </div>
         <div class="node-pills">
-          <div class="node-pill live"><span>Current status</span><strong>${gridDirection} ${this._format(Math.abs(grid) / 1000, 1)} kW</strong></div>
+          <div class="node-pill live"><span>Now</span><strong>${gridDirection} ${this._format(Math.abs(grid) / 1000, 1)} kW</strong></div>
           <div class="node-pill" data-entity="sensor.duhnergy_lifetime_grid_import" role="button" tabindex="0"><span>Imported today</span><strong>${this._format(importedToday, 1)} kWh</strong><small>${this._format(importCostToday, 2)} ${this._escape(currency)} cost</small></div>
           <div class="node-pill earning" data-entity="sensor.duhnergy_lifetime_grid_export" role="button" tabindex="0"><span>Exported today</span><strong>${this._format(exportedToday, 1)} kWh</strong><small>${this._format(exportRevenueToday, 2)} ${this._escape(currency)} earned</small></div>
         </div>
@@ -350,15 +350,16 @@ class DuhnergyCard extends HTMLElement {
           <div class="icon-orb"><ha-icon icon="mdi:home-lightning-bolt"></ha-icon></div>
         </div>
         <div class="node-pills">
-          <div class="node-pill live"><span>Current supply</span><strong>${this._escape(supplyLabel)}</strong><small>${this._escape(supplySummary)} estimated</small></div>
-          <div class="node-pill" data-entity="sensor.duhnergy_lifetime_household_consumption" role="button" tabindex="0"><span>Consumed today</span><strong>${this._format(householdToday, 1)} kWh</strong></div>
-          <div class="source-pills" aria-label="Estimated household consumption by source today">
-            <span><b>Solar</b>${this._format(estimatedSolarToHouse, 1)} kWh</span>
-            <span><b>Battery</b>${this._format(estimatedBatteryToHouse, 1)} kWh</span>
-            <span><b>Grid</b>${this._format(estimatedGridToHouse, 1)} kWh</span>
-            ${estimatedOtherToHouse > 0.05 ? `<span><b>Other</b>${this._format(estimatedOtherToHouse, 1)} kWh</span>` : ""}
+          <div class="node-pill live"><span>Supplied by</span><strong>${this._escape(supplyLabel)}</strong><small>${this._escape(supplySummary)}</small></div>
+          <div class="node-pill" data-entity="sensor.duhnergy_lifetime_household_consumption" role="button" tabindex="0"><span>Consumed today</span><strong>${this._format(householdToday, 1)} kWh</strong>
+            <div class="source-pills" aria-label="Estimated household consumption by source today">
+              <span><b>Solar</b>${this._format(estimatedSolarToHouse, 1)}</span>
+              <span><b>Battery</b>${this._format(estimatedBatteryToHouse, 1)}</span>
+              <span><b>Grid</b>${this._format(estimatedGridToHouse, 1)}</span>
+              ${estimatedOtherToHouse > 0.05 ? `<span><b>Other</b>${this._format(estimatedOtherToHouse, 1)}</span>` : ""}
+            </div>
+            <small class="estimate-note">kWh by source, estimated from measured balances</small>
           </div>
-          <small class="estimate-note">Today by source is estimated from measured energy balances.</small>
         </div>
       </div>
 
@@ -560,7 +561,7 @@ class DuhnergyCard extends HTMLElement {
       .map(
         ([key, label, icon, unit, entityId]) => `<div class="metric" data-entity="${entityId}" role="button" tabindex="0">
           <div class="icon-orb"><ha-icon icon="${icon}"></ha-icon></div><span>${label}</span>
-          <strong>${this._format(period[key], unit === "kWh" ? 3 : 2)} <small>${unit}</small></strong>
+          <strong>${this._format(period[key], unit === "kWh" ? 1 : 2)} <small>${unit}</small></strong>
         </div>`,
       )
       .join("")}</div>`;
@@ -632,6 +633,8 @@ class DuhnergyCard extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>
         :host {
+          container-type: inline-size;
+          container-name: card;
           --bg: #131f26;
           --petroleum: #1a2a33;
           --petroleum-light: #22343f;
@@ -649,13 +652,13 @@ class DuhnergyCard extends HTMLElement {
           --blue: #5aa9ff;
           --red: #ff6b6b;
 
-          --f1: 11px;
-          --f2: 12px;
-          --f3: 13px;
-          --f4: 15px;
-          --f5: 17px;
-          --f6: 20px;
-          --f7: 26px;
+          --f1: 12px;
+          --f2: 13px;
+          --f3: 14px;
+          --f4: 16px;
+          --f5: 18px;
+          --f6: 21px;
+          --f7: 27px;
 
           --s1: 4px;
           --s2: 8px;
@@ -684,33 +687,62 @@ class DuhnergyCard extends HTMLElement {
         button { color: inherit; }
         [data-entity] { cursor: pointer; }
         [data-entity]:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
-        .dashboard { padding: 16px; background: radial-gradient(circle at 15% 0%, rgba(18, 197, 223, .045), transparent 32%), var(--petroleum); }
-        .neo-panel { min-width: 0; border: 1px solid var(--line); border-radius: var(--r3); background: var(--petroleum); box-shadow: var(--shadow-flat); }
-        .header { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 15px 18px; margin-bottom: 22px; }
-        .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
-        .brand .icon-orb { width: 44px; height: 44px; color: var(--cyan); }
-        .brand h2 { margin: 0; font-size: 21px; letter-spacing: .4px; }
-        .brand p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
-        .header-status { display: flex; align-items: stretch; gap: 12px; }
-        .status-box, .mode-box { display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 8px 13px; border-radius: 13px; background: var(--petroleum); box-shadow: var(--shadow-inset); }
-        .status-box ha-icon { color: var(--cyan); --mdc-icon-size: 17px; }
-        .status-box span, .mode-box label { display: block; color: var(--muted); font-size: 11px; letter-spacing: .8px; text-transform: uppercase; }
-        .status-box strong { display: block; margin-top: 2px; font-size: 14px; text-transform: capitalize; }
-        .live-badge { display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 8px; color: var(--green); background: var(--green-soft); font-size: 11px; font-weight: 800; }
+        .dashboard { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s4); background:
+          radial-gradient(1200px 420px at 12% -10%, rgba(42, 212, 234, .07), transparent 60%),
+          radial-gradient(900px 380px at 96% 4%, rgba(255, 182, 61, .05), transparent 60%),
+          var(--bg); }
+        .panel { position: relative; min-width: 0; border: 1px solid var(--line); border-radius: var(--r3); background: linear-gradient(180deg, var(--petroleum-light) 0%, var(--petroleum) 58%); box-shadow: var(--shadow-flat); }
+        .panel:before { content: ""; position: absolute; inset: 0 0 auto; height: 1px; border-radius: inherit; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .13), transparent); pointer-events: none; }
+
+        .header { display: flex; justify-content: space-between; align-items: center; gap: var(--s4); flex: 0 0 auto; padding: var(--s3) var(--s4); }
+        .brand { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+        .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 auto; border-radius: var(--r2); color: #06222a; background: linear-gradient(145deg, var(--cyan), #14a7c4); box-shadow: 0 6px 16px rgba(42, 212, 234, .3); }
+        .brand-mark ha-icon { --mdc-icon-size: 24px; }
+        .brand-copy { min-width: 0; }
+        .brand h2 { margin: 0; font-size: var(--f6); font-weight: 700; letter-spacing: -.2px; }
+        .brand p { margin: 2px 0 0; overflow: hidden; color: var(--muted); font-size: var(--f2); text-overflow: ellipsis; white-space: nowrap; }
+        .header-status { display: flex; align-items: center; gap: var(--s2); }
+        .chip { display: flex; align-items: center; gap: var(--s2); min-height: 46px; padding: var(--s1) var(--s3); border: 1px solid var(--line); border-radius: var(--r2); background: rgba(0, 0, 0, .22); }
+        .chip > ha-icon { flex: 0 0 auto; color: var(--cyan); --mdc-icon-size: 20px; }
+        .chip span, .chip label { display: block; color: var(--muted); font-size: var(--f1); font-weight: 600; letter-spacing: .6px; text-transform: uppercase; }
+        .chip strong { display: block; margin-top: 1px; font-size: var(--f3); }
+        .live-badge { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border: 1px solid rgba(52, 217, 159, .3); border-radius: 999px; color: var(--green); background: var(--green-soft); font-size: var(--f1); font-weight: 800; letter-spacing: .8px; }
         .live-badge i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+        .off .live-badge { border-color: var(--line-strong); color: var(--muted); background: rgba(255, 255, 255, .05); }
+        .mode-chip select { width: 100%; min-width: 92px; margin-top: 1px; padding: 0; border: 0; color: var(--cyan); background: transparent; cursor: pointer; font-size: var(--f3); font-weight: 700; text-transform: capitalize; }
+        .mode-chip option { color: var(--text); background: var(--petroleum); }
+
+        .workspace { flex: 1 1 auto; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "flow solar plan" "flow price log"; gap: var(--s3); min-height: 0; height: clamp(520px, calc(100vh - 200px), 900px); }
+        .flow-panel { grid-area: flow; }
+        .solar-panel { grid-area: solar; }
+        .price-panel { grid-area: price; }
+        .plan-panel { grid-area: plan; }
+        .log-panel { grid-area: log; }
+        .workspace .panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+        .panel-head { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); flex: 0 0 auto; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); }
+        .panel-body { flex: 1 1 auto; min-height: 0; padding: var(--s4); }
+        .scroll-body { overflow-y: auto; overscroll-behavior: contain; }
+        .scroll-body::-webkit-scrollbar { width: 6px; }
+        .scroll-body::-webkit-scrollbar-thumb { border-radius: 99px; background: var(--line-strong); }
+        .title-copy { min-width: 0; }
+        .title-copy h3 { display: flex; align-items: center; gap: var(--s2); margin: 0; font-size: var(--f4); font-weight: 650; letter-spacing: -.1px; }
+        .title-copy h3 ha-icon { flex: 0 0 auto; color: var(--cyan); --mdc-icon-size: 19px; }
+        .title-copy p { margin: 3px 0 0 27px; overflow: hidden; color: var(--muted); font-size: var(--f2); text-overflow: ellipsis; white-space: nowrap; }
+        .head-badge { flex: 0 0 auto; padding: 6px 11px; border: 1px solid var(--line); border-radius: var(--r1); background: rgba(0, 0, 0, .22); text-align: right; }
+        .head-badge span { display: block; color: var(--muted); font-size: var(--f1); font-weight: 600; letter-spacing: .5px; text-transform: uppercase; }
+        .head-badge strong { display: block; margin-top: 1px; font-size: var(--f3); white-space: nowrap; }
+        .head-badge.is-positive strong { color: var(--green); }
+        .head-badge.is-negative strong { color: var(--red); }
+        .ghost-button { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; min-height: 34px; padding: 0 11px; border: 1px solid var(--line); border-radius: var(--r1); color: var(--muted); background: rgba(0, 0, 0, .2); cursor: pointer; font-size: var(--f2); font-weight: 600; }
+        .ghost-button:hover { border-color: var(--line-strong); color: var(--text); }
+        .ghost-button ha-icon { --mdc-icon-size: 16px; }
         .off .live-badge { color: var(--muted); background: rgba(145, 165, 175, .1); }
         .mode-box select { min-width: 105px; height: 38px; padding: 5px 26px 5px 9px; border: 0; border-radius: 8px; color: var(--cyan); background: var(--petroleum-dark); box-shadow: var(--shadow-inset); cursor: pointer; font-size: 13px; font-weight: 700; text-transform: capitalize; }
         .mode-box option { color: var(--text); background: var(--petroleum); }
         .main-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(310px, 1fr); gap: var(--s5); }
-        .topology-panel { display: flex; flex-direction: column; padding: var(--s6); overflow: hidden; }
-        .panel-title { display: flex; justify-content: space-between; align-items: center; gap: var(--s4); min-height: 54px; margin-bottom: var(--s5); }
-        .title-copy h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; letter-spacing: .5px; text-transform: uppercase; }
-        .title-copy h3 ha-icon { color: var(--cyan); --mdc-icon-size: 17px; }
-        .title-copy p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-        .budget-badge { padding: 8px 11px; border-radius: 10px; background: var(--petroleum); box-shadow: var(--shadow-inset); color: var(--muted); font-size: 11px; white-space: nowrap; }
-        .budget-badge strong { color: ${net < 0 ? "#ff867a" : "var(--green)"}; font-size: 14px; }
-        .topology { position: relative; flex: 1 1 auto; display: grid; grid-template-columns: minmax(240px, 1fr) minmax(190px, .78fr) minmax(240px, 1fr); grid-template-rows: auto auto auto; grid-template-areas: "solar solar solar" "grid core home" "battery core ev"; align-content: space-between; gap: var(--s5) var(--s6); }
-        .flow-layer { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+        .flow-panel .panel-body { display: flex; flex-direction: column; padding: var(--s3); overflow-y: auto; overscroll-behavior: contain; }
+        .topology { position: relative; flex: 1 1 auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(124px, .58fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; grid-template-areas: "solar solar solar" "grid core home" "battery core ev"; align-content: stretch; gap: var(--s2); }
+        .flow-layer { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
         .flow-track { fill: none; stroke: var(--line-strong); stroke-width: 2; stroke-linecap: round; }
         .flow-live { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 2 11; animation: flow-move 1.5s linear infinite; }
         .flow-solar { stroke: var(--amber); }
@@ -719,127 +751,122 @@ class DuhnergyCard extends HTMLElement {
         .flow-battery { stroke: var(--green); }
         .flow-ev { stroke: var(--blue); }
         @keyframes flow-move { to { stroke-dashoffset: -26; } }
-        .solar-array { grid-area: solar; position: relative; z-index: 1; }
-        .weather-production { display: grid; grid-template-columns: minmax(170px, .72fr) minmax(0, 1.28fr); gap: 12px; margin-bottom: 14px; }
-        .weather-card { display: flex; align-items: center; gap: 11px; min-height: 58px; padding: 9px 12px; border: 1px solid rgba(255, 255, 255, .025); border-radius: 13px; background: var(--petroleum); box-shadow: var(--shadow-small); }
-        .weather-icon { display: grid; place-items: center; width: 40px; height: 40px; flex: 0 0 auto; border-radius: 50%; color: var(--amber); background: var(--petroleum); box-shadow: var(--shadow-small); }
-        .weather-icon ha-icon { --mdc-icon-size: 24px; }
-        .weather-card span, .production-pill span { display: block; color: var(--muted); font-size: 11px; letter-spacing: .45px; text-transform: uppercase; }
-        .weather-card strong { display: block; margin-top: 2px; font-size: 14px; }
-        .weather-card em { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-style: normal; }
-        .production-pills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
-        .production-pill { display: grid; grid-template-columns: 23px minmax(0, 1fr); grid-template-rows: auto auto; align-items: center; gap: 1px 6px; min-width: 0; padding: 8px 9px; border: 1px solid rgba(255, 255, 255, .025); border-radius: 11px; background: var(--petroleum); box-shadow: var(--shadow-small); }
-        .production-pill ha-icon { grid-row: 1 / 3; color: var(--amber); --mdc-icon-size: 19px; }
-        .production-pill strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-        .production-pill small { color: var(--muted); font-size: 11px; font-weight: 500; }
+        .solar-array { grid-area: solar; position: relative; z-index: 1; display: grid; grid-template-columns: minmax(148px, .64fr) minmax(0, 1.36fr); gap: var(--s2) var(--s3); }
+        .weather-production { display: contents; }
+        .weather-card { display: flex; align-items: center; gap: var(--s2); min-height: 46px; padding: var(--s1) var(--s3); border: 1px solid var(--line); border-radius: var(--r2); background: linear-gradient(145deg, rgba(255, 182, 61, .1), rgba(0, 0, 0, .2)); }
+        .weather-icon { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto; border-radius: 50%; color: var(--amber); background: rgba(0, 0, 0, .25); }
+        .weather-icon ha-icon { --mdc-icon-size: 21px; }
+        .weather-card > div { min-width: 0; }
+        .weather-card span, .production-pill span { display: block; overflow: hidden; color: var(--muted); font-size: var(--f1); font-weight: 600; letter-spacing: .4px; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+        .weather-card strong { display: block; margin-top: 1px; overflow: hidden; font-size: var(--f3); text-overflow: ellipsis; white-space: nowrap; }
+        .weather-card em { display: block; color: var(--muted); font-size: var(--f1); font-style: normal; }
+        .production-pills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s2); }
+        .production-pill { display: grid; grid-template-columns: 20px minmax(0, 1fr); grid-template-rows: auto auto; align-items: center; gap: 0 var(--s2); min-width: 0; padding: var(--s1) var(--s3); border: 1px solid var(--line); border-radius: var(--r2); background: rgba(0, 0, 0, .2); }
+        .production-pill ha-icon { grid-row: 1 / 3; color: var(--muted); --mdc-icon-size: 18px; }
+        .production-pill strong { overflow: hidden; font-size: var(--f4); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+        .production-pill small { color: var(--muted); font-size: var(--f1); font-weight: 600; }
         .production-pill.live strong, .production-pill.live ha-icon { color: var(--amber); }
         .production-pill.actual strong, .production-pill.actual ha-icon { color: var(--green); }
-        .section-kicker { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; color: var(--amber); font-size: 12px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; }
-        .section-kicker b { padding: 4px 8px; border-radius: 7px; color: var(--muted); background: var(--petroleum); box-shadow: var(--shadow-inset); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
-        .solar-cards { display: grid; grid-template-columns: repeat(var(--surface-count), minmax(0, 1fr)); gap: 10px; }
-        .surface-card { min-width: 0; padding: 10px; border: 1px solid rgba(255, 255, 255, .025); border-radius: 12px; background: var(--petroleum); box-shadow: var(--shadow-small); }
-        .surface-head { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11px; }
+        .section-kicker { display: none; }
+        .solar-cards { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(var(--surface-count), minmax(0, 1fr)); gap: var(--s2); }
+        .surface-card { display: grid; grid-template-columns: 26px minmax(0, 1fr); grid-template-rows: auto auto auto; align-items: center; gap: 0 var(--s2); min-width: 0; padding: var(--s1) var(--s2); border: 1px solid var(--line); border-radius: var(--r2); background: rgba(0, 0, 0, .2); }
+        .surface-head { grid-column: 2; display: flex; justify-content: space-between; gap: var(--s2); color: var(--muted); font-size: var(--f1); font-weight: 600; }
         .surface-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .surface-head b { flex: 0 0 auto; color: var(--amber); font-size: 11px; }
-        .surface-main { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 7px 0; }
-        .surface-main .icon-orb { width: 34px; height: 34px; color: var(--amber); }
-        .surface-main .icon-orb ha-icon { --mdc-icon-size: 19px; }
-        .surface-main strong { font-size: 16px; }
-        .surface-main small { color: var(--muted); font-size: 11px; }
-        .surface-track { display: block; height: 4px; overflow: hidden; border-radius: 5px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
-        .surface-track u { display: block; max-width: 100%; height: 100%; border-radius: inherit; background: var(--amber); box-shadow: 0 0 7px rgba(255, 180, 0, .45); text-decoration: none; }
-        .surface-unavailable { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 68px; padding: 12px; border-radius: 12px; color: var(--muted); background: var(--petroleum); box-shadow: var(--shadow-inset); font-size: 12px; text-align: center; }
-        .surface-unavailable ha-icon { color: var(--amber); --mdc-icon-size: 19px; }
-        .entity-card, .topology-node, .metric { border: 1px solid rgba(255, 255, 255, .025); background: var(--petroleum); box-shadow: var(--shadow-small); transition: border-color .2s, transform .2s, box-shadow .2s; }
-        .entity-card:hover, .topology-node:hover, .metric:hover { border-color: rgba(18, 197, 223, .28); transform: translateY(-1px); }
-        .entity-card { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 90px; padding: 12px; border-radius: 13px; }
-        .entity-copy { min-width: 0; display: flex; flex-direction: column; }
-        .entity-copy span, .topology-node span { color: var(--muted); font-size: 11px; letter-spacing: .5px; text-transform: uppercase; }
-        .entity-copy strong, .topology-node strong { margin-top: 4px; font-size: 16px; }
-        .entity-copy small, .metric small { color: var(--muted); font-size: 11px; font-weight: 500; }
-        .entity-copy em, .topology-node em { margin-top: 4px; color: var(--muted); font-size: 11px; font-style: normal; }
-        .icon-orb { flex: 0 0 auto; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; color: var(--cyan); background: var(--petroleum); box-shadow: var(--shadow-small); }
-        .icon-orb ha-icon { --mdc-icon-size: 22px; }
-        .solar-card .icon-orb { color: var(--amber); }
-        .topology-node { position: relative; z-index: 1; border-radius: 15px; }
+        .surface-head b { display: none; }
+        .surface-main { grid-column: 1 / -1; display: grid; grid-template-columns: 26px minmax(0, 1fr); align-items: center; gap: var(--s2); }
+        .surface-main .icon-orb { width: 26px; height: 26px; color: var(--amber); background: rgba(255, 182, 61, .12); box-shadow: none; }
+        .surface-main .icon-orb ha-icon { --mdc-icon-size: 16px; }
+        .surface-main strong { font-size: var(--f4); font-weight: 650; }
+        .surface-main small { color: var(--muted); font-size: var(--f1); font-weight: 600; }
+        .surface-track { grid-column: 1 / -1; display: block; height: 3px; margin-top: 3px; overflow: hidden; border-radius: 99px; background: rgba(0, 0, 0, .4); }
+        .surface-track u { display: block; max-width: 100%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ff9d2e, var(--amber)); text-decoration: none; transition: width .5s ease; }
+        .surface-unavailable { display: flex; align-items: center; justify-content: center; gap: var(--s2); min-height: 52px; padding: var(--s3); border: 1px dashed var(--line-strong); border-radius: var(--r2); color: var(--muted); font-size: var(--f2); text-align: center; }
+        .surface-unavailable ha-icon { color: var(--amber); --mdc-icon-size: 18px; }
+        .topology-node, .metric { border: 1px solid var(--line); background: linear-gradient(180deg, rgba(255, 255, 255, .035), rgba(0, 0, 0, .16)); box-shadow: var(--shadow-small); transition: border-color .18s ease, transform .18s ease; }
+        .topology-node:hover, .metric:hover { border-color: rgba(42, 212, 234, .35); transform: translateY(-1px); }
+        .topology-node span { display: block; color: var(--muted); font-size: var(--f1); font-weight: 600; letter-spacing: .5px; text-transform: uppercase; }
+        .topology-node strong { display: block; margin-top: 2px; font-size: var(--f4); font-weight: 650; }
+        .topology-node em { display: block; margin-top: 2px; color: var(--muted); font-size: var(--f1); font-style: normal; }
+        .icon-orb { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: var(--cyan); background: rgba(0, 0, 0, .25); }
+        .icon-orb ha-icon { --mdc-icon-size: 19px; }
+        .topology-node { position: relative; z-index: 1; border-radius: var(--r2); }
         .grid-node { grid-area: grid; }
-        .active-grid strong { color: var(--green); }
-        .detail-node { align-self: stretch; min-height: 0; padding: var(--s4); }
-        .node-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
-        .node-heading > div:first-child { display: flex; flex-direction: column; }
-        .node-pills { display: grid; gap: 8px; }
-        .node-pill { min-width: 0; padding: 9px 10px; border-radius: 10px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
-        .node-pill span { display: block; font-size: 11px; }
-        .node-pill strong { display: block; margin-top: 3px; font-size: 14px; }
-        .node-pill small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+        .active-grid .node-heading strong { color: var(--green); }
+        .detail-node { align-self: stretch; display: flex; flex-direction: column; min-height: 0; padding: var(--s2) var(--s3); }
+        .node-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--s2); margin-bottom: var(--s1); }
+        .node-heading > div:first-child { min-width: 0; }
+        .node-pills { flex: 1 1 auto; display: grid; align-content: start; gap: var(--s1); }
+        .node-pill { min-width: 0; padding: 5px var(--s2); border-radius: var(--r1); background: rgba(0, 0, 0, .26); }
+        .node-pill span { display: block; font-size: 12px; }
+        .node-pill strong { display: block; margin-top: 3px; font-size: 15px; }
+        .node-pill small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+        .node-pill > span { display: block; color: var(--muted); font-size: var(--f1); font-weight: 600; letter-spacing: .4px; text-transform: uppercase; }
+        .node-pill > strong { display: block; margin-top: 1px; font-size: var(--f3); font-weight: 650; }
+        .node-pill > small { display: block; color: var(--muted); font-size: var(--f1); font-weight: 600; line-height: 1.35; }
         .node-pill.live strong { color: var(--cyan); }
         .node-pill.earning strong { color: var(--green); }
-        .source-pills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-        .source-pills span { padding: 8px 6px; border-radius: 8px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); color: var(--text); font-size: 11px; text-align: center; text-transform: none; }
-        .source-pills b { display: block; margin-bottom: 3px; color: var(--cyan); font-size: 11px; }
-        .estimate-note { display: block; color: var(--muted); font-size: 11px; line-height: 1.4; }
-        .core-node { grid-area: core; align-self: center; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 190px; padding: 18px; text-align: center; border-color: rgba(18, 197, 223, .25); box-shadow: var(--shadow-flat), 0 0 18px rgba(18, 197, 223, .12); }
-        .core-node > span { color: var(--cyan); font-weight: 800; }
-        .core-node .core-icon { position: relative; display: grid; place-items: center; width: 78px; height: 78px; margin: 15px 0; overflow: visible; border-radius: 50%; color: var(--cyan); background: var(--petroleum); box-shadow: var(--shadow-small), 0 0 22px rgba(18, 197, 223, .16); }
-        .core-node .core-icon ha-icon { --mdc-icon-size: 39px; }
-        .electron { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); opacity: 0; pointer-events: none; }
+        .source-pills { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 3px; margin-top: var(--s1); }
+        .source-pills span { padding: 4px 2px; border-radius: 7px; background: rgba(0, 0, 0, .3); color: var(--text); font-size: var(--f1); font-weight: 650; text-align: center; text-transform: none; }
+        .source-pills b { display: block; margin-bottom: 1px; color: var(--muted); font-size: var(--f1); font-weight: 600; }
+        .estimate-note { display: block; margin-top: 3px; color: var(--muted); font-size: var(--f1); line-height: 1.3; }
+        .core-node { grid-area: core; align-self: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: var(--s3) var(--s3); text-align: center; border-color: rgba(42, 212, 234, .3); background: radial-gradient(120% 90% at 50% 0%, rgba(42, 212, 234, .14), rgba(0, 0, 0, .18)); box-shadow: var(--shadow-flat), 0 0 26px rgba(42, 212, 234, .14); }
+        .core-node > span { color: var(--cyan); font-weight: 700; letter-spacing: .7px; }
+        .core-node .core-icon { position: relative; display: grid; place-items: center; width: 62px; height: 62px; margin: var(--s2) 0; overflow: visible; border-radius: 50%; color: #06222a; background: linear-gradient(145deg, var(--cyan), #159fbb); box-shadow: 0 0 26px rgba(42, 212, 234, .35); }
+        .core-node .core-icon ha-icon { --mdc-icon-size: 32px; }
+        .electron { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); opacity: 0; pointer-events: none; }
         .electron-one { animation: electron-one 1.9s ease-out infinite; }
         .electron-two { animation: electron-two 2.2s .45s ease-out infinite; }
         .electron-three { animation: electron-three 2s .85s ease-out infinite; }
         .electron-four { animation: electron-four 2.3s 1.2s ease-out infinite; }
-        @keyframes electron-one { 0% { transform: translate(-10px,-8px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(-51px,-43px) scale(1); opacity: 0; } }
-        @keyframes electron-two { 0% { transform: translate(9px,-9px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(53px,-38px) scale(1); opacity: 0; } }
-        @keyframes electron-three { 0% { transform: translate(-9px,8px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(-55px,39px) scale(1); opacity: 0; } }
-        @keyframes electron-four { 0% { transform: translate(10px,7px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(54px,43px) scale(1); opacity: 0; } }
-        .core-node strong { font-size: 18px; }
-        .core-node em { color: var(--cyan); }
+        @keyframes electron-one { 0% { transform: translate(-8px,-6px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(-38px,-32px) scale(1); opacity: 0; } }
+        @keyframes electron-two { 0% { transform: translate(7px,-7px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(40px,-28px) scale(1); opacity: 0; } }
+        @keyframes electron-three { 0% { transform: translate(-7px,6px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(-41px,29px) scale(1); opacity: 0; } }
+        @keyframes electron-four { 0% { transform: translate(8px,5px) scale(.5); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(40px,32px) scale(1); opacity: 0; } }
+        .core-node strong { font-size: var(--f5); font-weight: 700; }
+        .core-node em { color: var(--cyan); text-transform: capitalize; }
         .home-node { grid-area: home; }
-        .ev-node { grid-area: ev; align-self: start; min-height: 96px; padding: 14px; border-top-color: rgba(87, 169, 255, .38); }
-        .ev-summary { display: flex; align-items: center; gap: 12px; }
-        .ev-summary ha-icon { flex: 0 0 auto; color: var(--blue); --mdc-icon-size: 28px; }
-        .ev-summary > div { display: flex; flex-direction: column; min-width: 0; }
+        .ev-node { grid-area: ev; align-self: end; padding: var(--s2) var(--s3); }
+        .ev-summary { display: flex; align-items: center; gap: var(--s3); }
+        .ev-summary > ha-icon { flex: 0 0 auto; color: var(--blue); --mdc-icon-size: 26px; }
+        .ev-summary > div { min-width: 0; }
         .ev-summary strong { color: var(--blue); }
-        .ev-summary small { margin-top: 4px; color: var(--muted); font-size: 11px; }
-        .battery-node { grid-area: battery; align-self: start; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; min-height: 96px; padding: 14px 15px; border-top-color: rgba(40, 215, 162, .38); }
-        .active-battery strong, .battery-node .icon-orb { color: var(--green); }
-        .soc { min-width: 62px; text-align: right; }
-        .soc b { font-size: 19px; }
-        .soc i { display: block; width: 62px; height: 7px; margin-top: 5px; overflow: hidden; border-radius: 7px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
-        .soc u { display: block; height: 100%; border-radius: inherit; background: var(--green); box-shadow: 0 0 8px rgba(40, 215, 162, .45); text-decoration: none; }
-        .side-stack { display: flex; flex-direction: column; gap: var(--s5); min-width: 0; }
-        .controls-panel, .log-panel { padding: var(--s5); }
-        .log-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-        .control-list { display: flex; flex-direction: column; gap: 12px; }
-        .mode-control, .setting-row, .slider-row { border-radius: 13px; background: var(--petroleum); box-shadow: var(--shadow-small); }
-        .mode-control, .setting-row { display: grid; grid-template-columns: minmax(0, 1fr) 112px; align-items: center; gap: 12px; min-height: 57px; padding: 10px 12px; }
-        .mode-control span, .setting-row > span, .slider-row > span { display: flex; flex-direction: column; min-width: 0; }
-        .mode-control strong, .setting-row strong, .slider-row strong { font-size: 13px; }
-        .mode-control small, .setting-row small, .slider-row small { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.45; }
-        .mode-control select, .setting-row input { width: 100%; min-height: 40px; border: 0; border-radius: 9px; color: var(--cyan); background: var(--petroleum-dark); box-shadow: var(--shadow-inset); padding: 6px 9px; font-size: 12px; font-weight: 700; }
-        .slider-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 10px 12px; }
-        .slider-value { align-self: start; min-width: 58px; padding: 5px 7px; border-radius: 7px; color: var(--cyan); background: var(--cyan-soft); font-size: 11px; font-weight: 800; text-align: center; white-space: nowrap; }
-        .slider-row input[type="range"] { grid-column: 1 / -1; width: 100%; height: 14px; margin: 2px 0 0; padding: 0; border: 0; background: transparent; box-shadow: none; appearance: none; cursor: pointer; }
-        .slider-row input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 6px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
-        .slider-row input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -5px; border: 0; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 9px rgba(18, 197, 223, .42); appearance: none; }
-        .slider-row input[type="range"]::-moz-range-track { height: 6px; border-radius: 6px; background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
-        .slider-row input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 9px rgba(18, 197, 223, .42); }
-        .decision-log { flex: 1 1 auto; min-height: 220px; max-height: 420px; padding: var(--s3); overflow-y: auto; border-radius: var(--r2); background: var(--petroleum-dark); box-shadow: var(--shadow-inset); }
-        .decision { display: grid; grid-template-columns: 50px 1fr; gap: var(--s3); margin-bottom: var(--s2); padding: var(--s3); border: 1px solid var(--line); border-left: 2px solid var(--cyan); border-radius: var(--r1); background: rgba(255, 255, 255, .022); }
-        .decision:last-child { margin-bottom: 0; }
-        .decision time { align-self: start; padding: 5px; border-radius: 6px; color: var(--amber); background: var(--amber-soft); font-family: monospace; font-size: 11px; text-align: center; }
-        .decision strong { font-size: 13px; }
-        .decision p { margin: 5px 0; color: #d9e2e5; font-size: 12px; line-height: 1.5; }
-        .decision small { color: var(--muted); font-size: 11px; line-height: 1.4; }
-        .empty-state { padding: 20px 12px; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; }
-        .chart-panel .budget-badge { display: inline-block; margin: var(--s2) 0 0; }
-        .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s5); margin-top: var(--s5); }
-        .chart-panel, .timeline-panel, .stats-panel { padding: 18px; }
-        .chart-header { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); min-height: 54px; }
-        .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; color: var(--muted); font-size: 12px; }
-        .legend span { display: flex; align-items: center; gap: 4px; }
-        .legend i { width: 7px; height: 7px; border-radius: 2px; background: currentColor; }
-        .analytics-chart { display: block; width: 100%; min-height: 210px; margin-top: 6px; overflow: visible; }
-        .chart-grid { stroke: rgba(255, 255, 255, .055); stroke-width: 1; }
+        .ev-summary small { display: block; margin-top: 1px; color: var(--muted); font-size: var(--f1); font-weight: 600; }
+        .battery-node { grid-area: battery; align-self: end; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3); }
+        .active-battery .icon-orb, .battery-node .icon-orb { color: var(--green); background: rgba(52, 217, 159, .12); }
+        .active-battery strong { color: var(--green); }
+        .soc { min-width: 56px; text-align: right; }
+        .soc b { font-size: var(--f5); font-weight: 700; }
+        .soc i { display: block; width: 56px; height: 5px; margin-top: 4px; overflow: hidden; border-radius: 99px; background: rgba(0, 0, 0, .4); }
+        .soc u { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #1fb98a, var(--green)); text-decoration: none; transition: width .5s ease; }
+
+        .control-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: var(--s2); padding: 0 var(--s4) var(--s4); }
+        .setting-row, .slider-row { border: 1px solid var(--line); border-radius: var(--r2); background: rgba(0, 0, 0, .2); }
+        .setting-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3); }
+        .setting-row > span, .slider-row > span { display: flex; flex-direction: column; min-width: 0; }
+        .setting-row strong, .slider-row strong { font-size: var(--f3); font-weight: 650; }
+        .setting-row small, .slider-row small { margin-top: 2px; color: var(--muted); font-size: var(--f1); font-weight: 600; line-height: 1.35; }
+        .setting-row input { width: 100%; min-height: 36px; padding: 5px 9px; border: 1px solid var(--line); border-radius: var(--r1); color: var(--cyan); background: rgba(0, 0, 0, .3); font-size: var(--f2); font-weight: 700; }
+        .slider-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s1) var(--s3); padding: var(--s2) var(--s3) var(--s3); }
+        .slider-value { align-self: start; min-width: 58px; padding: 4px 8px; border: 1px solid rgba(42, 212, 234, .22); border-radius: 99px; color: var(--cyan); background: var(--cyan-soft); font-size: var(--f1); font-weight: 800; text-align: center; white-space: nowrap; }
+        .slider-row input[type="range"] { grid-column: 1 / -1; width: 100%; height: 18px; margin: 2px 0 0; padding: 0; border: 0; background: transparent; appearance: none; cursor: pointer; }
+        .slider-row input[type="range"]::-webkit-slider-runnable-track { height: 5px; border-radius: 99px; background: rgba(0, 0, 0, .42); }
+        .slider-row input[type="range"]::-webkit-slider-thumb { width: 18px; height: 18px; margin-top: -6.5px; border: 3px solid var(--petroleum); border-radius: 50%; background: var(--cyan); box-shadow: 0 2px 6px rgba(0, 0, 0, .5); appearance: none; }
+        .slider-row input[type="range"]::-moz-range-track { height: 5px; border-radius: 99px; background: rgba(0, 0, 0, .42); }
+        .slider-row input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; border: 3px solid var(--petroleum); border-radius: 50%; background: var(--cyan); }
+        .decision-log { display: grid; gap: var(--s2); }
+        .decision { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: var(--s3); padding: var(--s2) var(--s3); border: 1px solid var(--line); border-left: 2px solid var(--cyan); border-radius: var(--r1); background: rgba(255, 255, 255, .03); }
+        .decision time { align-self: start; padding: 3px 4px; border-radius: 6px; color: var(--amber); background: var(--amber-soft); font-size: var(--f1); font-weight: 700; text-align: center; }
+        .decision strong { font-size: var(--f3); font-weight: 650; }
+        .decision p { margin: 3px 0 0; color: #dbe5e9; font-size: var(--f2); line-height: 1.45; }
+        .decision small { display: block; margin-top: 3px; color: var(--muted); font-size: var(--f1); line-height: 1.4; }
+        .empty-state { display: grid; place-items: center; height: 100%; min-height: 90px; padding: var(--s5) var(--s3); color: var(--muted); font-size: var(--f2); line-height: 1.5; text-align: center; }
+        .chart-body { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3) var(--s4) var(--s3); }
+        .legend { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s3); flex: 0 0 auto; color: var(--muted); font-size: var(--f1); font-weight: 600; }
+        .legend span { display: flex; align-items: center; gap: 5px; }
+        .legend i { width: 8px; height: 8px; border-radius: 3px; background: currentColor; }
+        .legend i.is-line { height: 2px; width: 12px; border-radius: 99px; }
+        .analytics-chart { display: block; flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; overflow: visible; }
+        .chart-grid { stroke: rgba(255, 255, 255, .06); stroke-width: 1; }
         .chart-grid.horizontal { stroke-dasharray: 3 5; }
         .chart-label { fill: var(--muted); font-size: 11px; }
         .solar-area { fill: url(#solar-fill); }
@@ -847,163 +874,170 @@ class DuhnergyCard extends HTMLElement {
         .solar-line { stroke: var(--amber); stroke-width: 2.4; }
         .solar-point { fill: var(--petroleum); stroke: var(--amber); stroke-width: 2; }
         .sell-line { stroke: var(--green); stroke-width: 2.3; }
-        .price-bar.low { fill: rgba(40, 215, 162, .72); }
-        .price-bar.normal { fill: rgba(18, 197, 223, .64); }
-        .price-bar.high { fill: rgba(235, 87, 87, .73); }
-        .empty-chart { display: grid; place-items: center; min-height: 220px; color: var(--muted); font-size: 12px; }
-        .lower-grid { display: grid; grid-template-columns: minmax(280px, .8fr) minmax(0, 1.2fr); gap: var(--s5); margin-top: var(--s5); }
-        .timeline { max-height: 310px; overflow-y: auto; padding-right: 3px; }
-        .timeline-item { display: grid; grid-template-columns: 55px 12px 1fr auto; gap: 8px; min-height: 58px; }
-        .timeline-item time { font-size: 11px; text-align: right; }
-        .timeline-item time small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
-        .timeline-item > i { position: relative; border-left: 1px solid rgba(40, 215, 162, .28); }
-        .timeline-item > i:before { content: ""; position: absolute; left: -4px; top: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 7px rgba(40, 215, 162, .45); }
-        .timeline-item strong { font-size: 13px; }
-        .timeline-item p { margin: 4px 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
-        .timeline-item b { color: var(--cyan); font-size: 11px; white-space: nowrap; }
-        .period-tabs { display: flex; gap: 4px; margin-bottom: 13px; padding: 4px; overflow-x: auto; border-radius: 11px; background: var(--petroleum); box-shadow: var(--shadow-inset); }
-        .period-tabs button { flex: 1 0 auto; min-height: 40px; padding: 7px 10px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; cursor: pointer; font-size: 11px; font-weight: 700; }
-        .period-tabs button.selected { color: var(--cyan); background: var(--petroleum-light); box-shadow: var(--shadow-small); }
-        .metric-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; }
-        .metric { display: grid; grid-template-columns: 30px 1fr; grid-template-rows: auto auto; align-items: center; gap: 1px 7px; min-width: 0; min-height: 64px; padding: 9px; border-radius: 11px; }
-        .metric .icon-orb { grid-row: 1 / 3; width: 30px; height: 30px; color: var(--cyan); }
-        .metric .icon-orb ha-icon { --mdc-icon-size: 17px; }
-        .metric > span { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-        .metric > strong { font-size: 13px; white-space: nowrap; }
-        .expander { margin-top: var(--s5); }
-        .expander > summary { padding: 14px 17px; cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 700; }
-        .command-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; padding: 2px 17px 17px; }
-        .command { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 8px; border: 1px solid rgba(255, 255, 255, .025); border-radius: 10px; color: var(--text); background: var(--petroleum); box-shadow: var(--shadow-small); cursor: pointer; font-size: 11px; font-weight: 700; }
-        .command:active { box-shadow: var(--shadow-inset); transform: translateY(1px); }
-        .command ha-icon { color: var(--cyan); --mdc-icon-size: 16px; }
-        .extra-settings { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 2px 17px 17px; }
-        .clear-log { min-height: 28px; padding: 5px 8px; }
-        .footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, .045); color: var(--muted); font-size: 11px; text-align: center; }
-        @media (max-width: 1000px) {
-          .main-grid { grid-template-columns: 1fr; }
-          .side-stack { display: grid; grid-template-columns: 1fr 1fr; }
-          .topology-panel { min-height: auto; }
-          .metric-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .price-bar.low { fill: rgba(52, 217, 159, .72); }
+        .price-bar.normal { fill: rgba(42, 212, 234, .6); }
+        .price-bar.high { fill: rgba(255, 107, 107, .72); }
+        .empty-chart { display: grid; place-items: center; height: 100%; min-height: 120px; color: var(--muted); font-size: var(--f2); }
+        .timeline { display: grid; gap: var(--s2); }
+        .timeline-item { display: grid; grid-template-columns: 50px 10px minmax(0, 1fr) auto; gap: var(--s2); align-items: start; }
+        .timeline-item time { font-size: var(--f1); font-weight: 700; text-align: right; }
+        .timeline-item time small { display: block; margin-top: 1px; color: var(--muted); font-size: var(--f1); font-weight: 600; }
+        .timeline-item > i { position: relative; align-self: stretch; border-left: 1px solid var(--line-strong); }
+        .timeline-item > i:before { content: ""; position: absolute; left: -4px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px rgba(52, 217, 159, .5); }
+        .timeline-item strong { font-size: var(--f3); font-weight: 650; }
+        .timeline-item p { margin: 2px 0 0; color: var(--muted); font-size: var(--f1); line-height: 1.4; }
+        .timeline-item b { color: var(--cyan); font-size: var(--f1); white-space: nowrap; }
+
+        .stats-strip { flex: 0 0 auto; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--s4); padding: var(--s2) var(--s3); }
+        .period-tabs { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 99px; background: rgba(0, 0, 0, .28); }
+        .period-tabs button { flex: 0 0 auto; min-height: 32px; padding: 0 14px; border: 0; border-radius: 99px; color: var(--muted); background: transparent; cursor: pointer; font-size: var(--f2); font-weight: 650; transition: color .16s ease, background .16s ease; }
+        .period-tabs button:hover { color: var(--text); }
+        .period-tabs button.selected { color: #06222a; background: var(--cyan); }
+        .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: var(--s2); }
+        .metric { display: grid; grid-template-columns: 28px minmax(0, 1fr); grid-template-rows: auto auto; align-items: center; gap: 0 var(--s2); min-width: 0; padding: var(--s2) var(--s3); border-radius: var(--r2); }
+        .metric .icon-orb { grid-row: 1 / 3; width: 28px; height: 28px; color: var(--cyan); }
+        .metric .icon-orb ha-icon { --mdc-icon-size: 16px; }
+        .metric > span { overflow: hidden; color: var(--muted); font-size: var(--f1); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+        .metric > strong { font-size: var(--f4); font-weight: 650; white-space: nowrap; }
+        .metric small { color: var(--muted); font-size: var(--f1); font-weight: 600; }
+        .expander { flex: 0 0 auto; }
+        .expander > summary { display: flex; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); cursor: pointer; font-size: var(--f3); font-weight: 650; list-style: none; }
+        .expander > summary::-webkit-details-marker { display: none; }
+        .expander > summary:after { content: ""; width: 7px; height: 7px; margin-left: auto; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg) translateY(-2px); transition: transform .2s ease; }
+        .expander[open] > summary:after { transform: rotate(-135deg) translateY(-2px); }
+        .expander > summary ha-icon { color: var(--cyan); --mdc-icon-size: 19px; }
+        .expander > summary i { color: var(--muted); font-size: var(--f2); font-style: normal; font-weight: 500; }
+        .command-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s2); padding: 0 var(--s4) var(--s4); }
+        .command { display: flex; align-items: center; justify-content: center; gap: var(--s2); min-height: 42px; padding: var(--s2); border: 1px solid var(--line); border-radius: var(--r2); color: var(--text); background: rgba(0, 0, 0, .2); cursor: pointer; font-size: var(--f2); font-weight: 650; transition: border-color .16s ease, background .16s ease, transform .1s ease; }
+        .command:hover { border-color: rgba(42, 212, 234, .35); background: rgba(42, 212, 234, .08); }
+        .command:active { transform: translateY(1px); }
+        .command ha-icon { color: var(--cyan); --mdc-icon-size: 17px; }
+        .extra-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: var(--s2); padding: 0 var(--s4) var(--s4); }
+        .footer { flex: 0 0 auto; padding-top: var(--s2); color: var(--muted); font-size: var(--f1); text-align: center; }
+
+        @container card (max-width: 1080px) {
+          .workspace { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); grid-template-rows: minmax(300px, 1.25fr) minmax(190px, .75fr) minmax(190px, .75fr); grid-template-areas: "flow solar" "flow price" "plan log"; height: auto; }
+          .metric-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
         }
-        @media (max-width: 720px) {
-          .dashboard { padding: 10px; }
-          .header { align-items: flex-start; flex-direction: column; padding: 13px; margin-bottom: 16px; }
-          .header-status { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
-          .status-box, .mode-box { min-width: 0; }
-          .mode-box { flex-direction: column; align-items: stretch; gap: 4px; }
-          .mode-box select { min-width: 0; width: 100%; }
-          .topology-panel { padding: 14px; }
-          .topology { display: flex; flex-direction: column; min-height: 0; gap: 12px; }
+        @container card (max-width: 900px) {
+          .stats-strip { grid-template-columns: minmax(0, 1fr); }
+          .period-tabs { overflow-x: auto; }
+          .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+          .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "flow" "solar" "price" "plan" "log"; }
+          .workspace .chart-panel { min-height: 240px; }
+          .plan-panel, .log-panel { max-height: 340px; }
+        }
+        @container card (max-width: 760px) {
+          .dashboard { gap: var(--s2); padding: var(--s2); }
+          .header { align-items: stretch; flex-direction: column; gap: var(--s3); }
+          .header-status { flex-wrap: wrap; }
+          .chip { flex: 1 1 auto; }
+          .topology { display: flex; flex-direction: column; gap: var(--s2); }
           .flow-layer { display: none; }
-          .solar-array, .topology-node { width: 100%; }
-          .weather-production { grid-template-columns: 1fr; }
+          .solar-array { display: grid; grid-template-columns: minmax(0, 1fr); }
+          .production-pills { grid-template-columns: repeat(3, minmax(0, 1fr)); }
           .solar-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-          .entity-card { min-height: 76px; }
-          .grid-node, .core-node, .home-node, .battery-node, .ev-node { align-self: stretch; }
-          .grid-node, .core-node, .home-node, .battery-node, .ev-node { border-top: 2px solid rgba(18, 197, 223, .25); }
-          .side-stack, .analytics-grid, .lower-grid { grid-template-columns: 1fr; }
+          .core-node, .battery-node, .ev-node { align-self: stretch; }
           .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-          .command-grid { grid-template-columns: repeat(2, 1fr); }
-          .extra-settings { grid-template-columns: 1fr; }
-          .analytics-chart { min-height: 175px; }
         }
-        @media (max-width: 400px) {
-          .brand h2 { font-size: 17px; }
-          .brand p { font-size: 12px; }
-          .header-status { grid-template-columns: 1fr; }
-          .panel-title, .chart-header { flex-direction: column; }
-          .mode-control, .setting-row { grid-template-columns: 1fr 94px; }
-          .production-pills, .solar-cards { grid-template-columns: 1fr; }
-          .metric-grid { grid-template-columns: 1fr; }
+        @container card (max-width: 460px) {
+          .brand p { display: none; }
+          .production-pills, .solar-cards, .metric-grid, .source-pills { grid-template-columns: minmax(0, 1fr); }
+          .title-copy p { margin-left: 0; }
         }
-        @media (prefers-reduced-motion: reduce) { .active-path.is-active, .electron { animation: none; } }
+        @media (prefers-reduced-motion: reduce) { .flow-live, .electron { animation: none; } }
       </style>
       <ha-card class="${tone}">
         <div class="dashboard">
-          <header class="neo-panel header">
+          <header class="panel header">
             <div class="brand">
-              <div class="icon-orb"><ha-icon icon="mdi:solar-panel-large"></ha-icon></div>
-              <div><h2>${this._escape(this.config.title)}</h2><p>Home energy planning, optimisation and accounting</p></div>
+              <div class="brand-mark"><ha-icon icon="mdi:lightning-bolt"></ha-icon></div>
+              <div class="brand-copy"><h2>${this._escape(this.config.title)}</h2><p>Energy planning, optimisation and accounting</p></div>
             </div>
             <div class="header-status">
-              <div class="status-box" data-entity="${this.config.status_entity}" role="button" tabindex="0">
-                <ha-icon icon="mdi:clock-outline"></ha-icon><div><span>Last plan</span><strong>${generatedAt ? this._time(generatedAt, { weekday: undefined }) : "Waiting"}</strong></div>
-                <b class="live-badge"><i></i>${mode === "off" ? "OFF" : "LIVE"}</b>
+              <div class="chip" data-entity="${this.config.status_entity}" role="button" tabindex="0">
+                <ha-icon icon="mdi:update"></ha-icon><div><span>Last plan</span><strong>${generatedAt ? this._time(generatedAt, { weekday: undefined }) : "Waiting"}</strong></div>
               </div>
-              <div class="mode-box"><label for="duhnergy-mode">Operating mode</label><select id="duhnergy-mode" data-select="select.duhnergy_mode">
-                ${["shadow", "auto", "off"].map((option) => `<option value="${option}" ${mode === option ? "selected" : ""}>${this._label(option)}</option>`).join("")}
-              </select></div>
+              <div class="chip mode-chip">
+                <ha-icon icon="${mode === "auto" ? "mdi:robot" : mode === "off" ? "mdi:power-standby" : "mdi:eye-outline"}"></ha-icon>
+                <div><label for="duhnergy-mode">Operating mode</label>
+                <select id="duhnergy-mode" data-select="select.duhnergy_mode">
+                  ${["shadow", "auto", "off"].map((option) => `<option value="${option}" ${mode === option ? "selected" : ""}>${this._label(option)}</option>`).join("")}
+                </select></div>
+              </div>
+              <b class="live-badge"><i></i>${mode === "off" ? "OFF" : "LIVE"}</b>
             </div>
           </header>
 
-          <main class="main-grid">
-            <section class="neo-panel topology-panel">
-              <div class="panel-title">
+          <main class="workspace">
+            <section class="panel flow-panel">
+              <div class="panel-head">
                 <div class="title-copy"><h3><ha-icon icon="mdi:transmission-tower-export"></ha-icon>Live energy</h3><p data-entity="${this.config.reason_entity}" role="button" tabindex="0">${this._escape(reason)}</p></div>
-                <div class="budget-badge">24h budget <strong>${net >= 0 ? "+" : ""}${net.toFixed(1)} kWh</strong></div>
+                <div class="head-badge ${net < 0 ? "is-negative" : "is-positive"}"><span>24h budget</span><strong>${net >= 0 ? "+" : ""}${net.toFixed(1)} kWh</strong></div>
               </div>
-              ${this._powerTopology(planAttributes, forecastAttributes, statsAttributes)}
+              <div class="panel-body">${this._powerTopology(planAttributes, forecastAttributes, statsAttributes)}</div>
             </section>
 
-            <aside class="side-stack">
-              <section class="neo-panel controls-panel">
-                <div class="panel-title"><div class="title-copy"><h3><ha-icon icon="mdi:tune-variant"></ha-icon>Smart optimisations</h3><p>Core planning controls</p></div></div>
-                <div class="control-list">
-                  <label class="mode-control"><span><strong>Operating mode</strong><small>Shadow observes; Auto may control mapped equipment</small></span><select data-select="select.duhnergy_mode">
-                    ${["shadow", "auto", "off"].map((option) => `<option value="${option}" ${mode === option ? "selected" : ""}>${this._label(option)}</option>`).join("")}
-                  </select></label>
-                  ${this._slider("Hard backup reserve", "number.duhnergy_hard_backup_reserve", "Battery floor preserved by every plan")}
-                  ${this._slider("Export stop SOC", "number.duhnergy_export_stop_soc", "Stop battery export at this level")}
-                  ${this._slider("EV battery stop SOC", "number.duhnergy_ev_battery_stop_soc", "Protect stored energy during EV charging")}
-                  ${this._slider("Solar forecast margin", "number.duhnergy_solar_forecast_margin", "Discount forecast uncertainty")}
-                  ${this._slider("Daily household demand", "number.duhnergy_household_daily_demand", "Expected consumption over 24 hours", "kWh")}
-                  ${this._slider("Grid current limit", "number.duhnergy_grid_current_limit", "Shared import limit for EV charging", "A")}
-                </div>
-              </section>
-              <section class="neo-panel log-panel">
-                <div class="panel-title"><div class="title-copy"><h3><ha-icon icon="mdi:brain"></ha-icon>Decision log</h3><p>Persistent Shadow-mode plan transitions</p></div>
-                  <button class="command clear-log" data-button="button.duhnergy_clear_simulator_log"><ha-icon icon="mdi:delete-sweep-outline"></ha-icon>Clear</button>
-                </div>
-                <div class="decision-log">${this._simulator(logEntries)}</div>
-              </section>
-            </aside>
+            <section class="panel chart-panel solar-panel">
+              <div class="panel-head">
+                <div class="title-copy"><h3><ha-icon icon="mdi:weather-sunny"></ha-icon>Solar forecast</h3><p>Next 24 hours</p></div>
+                <div class="head-badge"><span>Peak</span><strong>${this._format(solarPeak, 1)} kW</strong></div>
+              </div>
+              <div class="panel-body chart-body">
+                ${this._solarChart(forecastAttributes)}
+                <div class="legend"><span style="color:var(--amber)"><i></i>Solar forecast</span></div>
+              </div>
+            </section>
+
+            <section class="panel chart-panel price-panel">
+              <div class="panel-head">
+                <div class="title-copy"><h3><ha-icon icon="mdi:cash-multiple"></ha-icon>Prices</h3><p>${this._escape(currency)} per kWh</p></div>
+                <div class="head-badge"><span>Buy / sell</span><strong>${this._format(currentBuy)} · ${this._format(currentSell)}</strong></div>
+              </div>
+              <div class="panel-body chart-body">
+                ${this._priceChart(forecastAttributes)}
+                <div class="legend"><span style="color:var(--green)"><i></i>Low</span><span style="color:var(--cyan)"><i></i>Normal</span><span style="color:var(--red)"><i></i>High</span><span style="color:var(--green)"><i class="is-line"></i>Sell</span></div>
+              </div>
+            </section>
+
+            <section class="panel plan-panel">
+              <div class="panel-head">
+                <div class="title-copy"><h3><ha-icon icon="mdi:timeline-clock-outline"></ha-icon>Today's plan</h3><p>Charge, export and EV windows</p></div>
+              </div>
+              <div class="panel-body scroll-body"><div class="timeline">${this._timeline(timeline, currency)}</div></div>
+            </section>
+
+            <section class="panel log-panel">
+              <div class="panel-head">
+                <div class="title-copy"><h3><ha-icon icon="mdi:message-text-clock-outline"></ha-icon>Decision log</h3><p>Shadow-mode plan transitions</p></div>
+                <button class="ghost-button clear-log" data-button="button.duhnergy_clear_simulator_log" title="Clear decision log"><ha-icon icon="mdi:delete-sweep-outline"></ha-icon>Clear</button>
+              </div>
+              <div class="panel-body scroll-body"><div class="decision-log">${this._simulator(logEntries)}</div></div>
+            </section>
           </main>
 
-          <section class="analytics-grid">
-            <div class="neo-panel chart-panel">
-              <div class="chart-header"><div class="title-copy"><h3><ha-icon icon="mdi:chart-areaspline"></ha-icon>Solar forecast (24h)</h3><p>Hourly generation outlook</p></div><div class="legend"><span style="color:var(--amber)"><i></i>Solar</span></div></div>
-              <div class="budget-badge">Forecast peak <strong>${this._format(solarPeak, 1)} kW</strong></div>
-              ${this._solarChart(forecastAttributes)}
-            </div>
-            <div class="neo-panel chart-panel">
-              <div class="chart-header"><div class="title-copy"><h3><ha-icon icon="mdi:cash-multiple"></ha-icon>Electricity prices (${this._escape(currency)}/kWh)</h3><p>Buy-price bands with sell-price overlay</p></div><div class="legend"><span style="color:var(--green)"><i></i>Low buy</span><span style="color:var(--cyan)"><i></i>Normal buy</span><span style="color:var(--red)"><i></i>High buy</span><span style="color:var(--green)"><i></i>Sell</span></div></div>
-              <div class="budget-badge">Buy <strong>${this._format(currentBuy)}</strong> · Sell <strong>${this._format(currentSell)}</strong></div>
-              ${this._priceChart(forecastAttributes)}
-            </div>
-          </section>
+          <section class="panel stats-strip">${this._stats(statsAttributes)}</section>
 
-          <section class="lower-grid">
-            <div class="neo-panel timeline-panel">
-              <div class="panel-title"><div class="title-copy"><h3><ha-icon icon="mdi:timeline-clock-outline"></ha-icon>Today plan</h3><p>Calculated charge, export and EV windows</p></div></div>
-              <div class="timeline">${this._timeline(timeline, currency)}</div>
-            </div>
-            <div class="neo-panel stats-panel">
-              <div class="panel-title"><div class="title-copy"><h3><ha-icon icon="mdi:chart-box-outline"></ha-icon>Energy and money</h3><p>Persistent local-time accounting</p></div></div>
-              ${this._stats(statsAttributes)}
-            </div>
-          </section>
+          <details class="panel expander" data-section="controls"><summary><ha-icon icon="mdi:tune-variant"></ha-icon>Smart optimisations<i>Planning limits applied to every calculated plan</i></summary><div class="control-grid">
+            ${this._slider("Hard backup reserve", "number.duhnergy_hard_backup_reserve", "Battery floor preserved by every plan")}
+            ${this._slider("Export stop SOC", "number.duhnergy_export_stop_soc", "Stop battery export at this level")}
+            ${this._slider("EV battery stop SOC", "number.duhnergy_ev_battery_stop_soc", "Protect stored energy during EV charging")}
+            ${this._slider("Solar forecast margin", "number.duhnergy_solar_forecast_margin", "Discount forecast uncertainty")}
+            ${this._slider("Daily household demand", "number.duhnergy_household_daily_demand", "Expected consumption over 24 hours", "kWh")}
+            ${this._slider("Grid current limit", "number.duhnergy_grid_current_limit", "Shared import limit for EV charging", "A")}
+          </div></details>
 
-          <details class="neo-panel expander" data-section="manual"><summary>Manual controls</summary><div class="command-grid">
-            ${this._button("charge_battery_now", "Charge battery")}
-            ${this._button("export_now", "Export now")}
-            ${this._button("hold_battery", "Hold battery")}
-            ${this._button("pause_ev", "Pause EV")}
-            ${this._button("ev_solar", "EV solar")}
-            ${this._button("ev_battery", "EV battery")}
-            ${this._button("ev_grid", "EV grid")}
+          <details class="panel expander" data-section="manual"><summary><ha-icon icon="mdi:gesture-tap-button"></ha-icon>Manual controls<i>Override the calculated plan</i></summary><div class="command-grid">
+            ${this._button("charge_battery_now", "Charge battery", "mdi:battery-charging-high")}
+            ${this._button("export_now", "Export now", "mdi:transmission-tower-export")}
+            ${this._button("hold_battery", "Hold battery", "mdi:battery-lock")}
+            ${this._button("pause_ev", "Pause EV", "mdi:pause-octagon-outline")}
+            ${this._button("ev_solar", "EV solar", "mdi:solar-power-variant")}
+            ${this._button("ev_battery", "EV battery", "mdi:home-battery-outline")}
+            ${this._button("ev_grid", "EV grid", "mdi:transmission-tower-import")}
             ${this._button("resume_auto", "Resume Auto", "mdi:play-circle-outline")}
           </div></details>
-          <details class="neo-panel expander" data-section="settings"><summary>Additional planning settings</summary><div class="extra-settings">
+          <details class="panel expander" data-section="settings"><summary><ha-icon icon="mdi:cog-outline"></ha-icon>Additional planning settings<i>Values read from the integration</i></summary><div class="extra-settings">
             ${this._setting("Battery capacity", "number.duhnergy_battery_capacity")}
             ${this._setting("Solar forecast margin", "number.duhnergy_solar_forecast_margin")}
             ${this._setting("Daily demand", "number.duhnergy_household_daily_demand")}
@@ -1061,7 +1095,8 @@ class DuhnergyCard extends HTMLElement {
       }),
     );
     this.shadowRoot.querySelectorAll("details[data-section]").forEach((details) => {
-      details.open = openSections.get(details.dataset.section) || false;
+      const remembered = openSections.get(details.dataset.section);
+      details.open = remembered === undefined ? details.hasAttribute("open") : remembered;
     });
   }
 
