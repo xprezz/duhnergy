@@ -1062,9 +1062,9 @@ class DuhnergyCard extends HTMLElement {
     }));
     const pvEntities = Array.isArray(this.config.pv_entities) ? this.config.pv_entities : [];
     const pvLayout = [
+      { index: 2, direction: "NORTH" },
       { index: 0, direction: "SOUTH" },
       { index: 3, direction: "EAST" },
-      { index: 2, direction: "NORTH" },
       { index: 1, direction: "WEST" },
     ];
     const strings = pvLayout.map(({ index, direction }) => {
@@ -1107,13 +1107,23 @@ class DuhnergyCard extends HTMLElement {
     this._flowModel = [
       ...strings.map((item, index) => ({
         from: [`.pv-string:nth-child(${index + 1})`, "bottom", 0.5],
-        to: [".inverter-module", "top", (index + 1) / 5],
+        to: [".pv-harness", "top", (index + 1) / 5],
         tone: "solar",
         active: (item.power || 0) > 20,
         power: item.power || 0,
         speed: speed(item.power || 0),
         route: "vertical",
       })),
+      {
+        from: [".pv-harness", "bottom", 0.5],
+        to: [".inverter-module", "top", 0.5],
+        tone: "solar",
+        active: solar > 20,
+        power: solar,
+        speed: speed(solar),
+        route: "vertical",
+        trunk: true,
+      },
       {
         from: [".grid-module", "right", 0.5],
         to: [".inverter-module", "left", 0.35],
@@ -1191,6 +1201,7 @@ class DuhnergyCard extends HTMLElement {
       </div>
       <div class="energy-topology topology">
         <svg class="flow-layer" aria-hidden="true" focusable="false"></svg>
+        <div class="pv-harness" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
         <section class="tech-panel device-module grid-module" data-entity="sensor.duhnergy_grid_net_power" role="button" tabindex="0">
           <div class="device-art">${this._deviceArt("grid")}</div><div class="device-copy"><h3>GRID</h3><span class="${
             gridImporting ? "cyan" : "orange"
@@ -1894,6 +1905,9 @@ class DuhnergyCard extends HTMLElement {
           "grid inverter house"
           "phase battery ev"; gap: 72px 112px; min-height: 455px; padding: 42px 0 24px; }
         .flow-layer { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+        .pv-harness { position: absolute; z-index: 2; left: 50%; top: 4px; display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; width: 142px; height: 27px; padding: 4px 9px; border: 3px solid #41617d; border-radius: 4px; background: #061626; box-shadow: 0 0 0 2px #020912, 0 0 12px rgba(120,210,75,.22); transform: translateX(-50%); }
+        .pv-harness:before { content: ""; position: absolute; left: 9px; right: 9px; top: 50%; height: 4px; border-radius: 99px; background: var(--green); box-shadow: 0 0 6px rgba(120,210,75,.65); transform: translateY(-50%); }
+        .pv-harness i { position: relative; z-index: 1; justify-self: center; width: 8px; height: 8px; border: 2px solid var(--green); border-radius: 50%; background: #071727; }
         .device-module, .phase-module { z-index: 1; min-height: 156px; padding: 12px; }
         .grid-module { grid-area: grid; }
         .inverter-module { grid-area: inverter; text-align: center; }
@@ -1962,6 +1976,7 @@ class DuhnergyCard extends HTMLElement {
         .flow-track { stroke: var(--outline-bright); stroke-width: 6; opacity: .75; }
         .flow-track-center { fill: none; stroke: #0b1826; stroke-width: 2; stroke-dasharray: 2 7; }
         .flow-live { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 4 12; filter: drop-shadow(0 0 3px currentColor); animation: feeder-flow var(--flow-speed, 1.2s) linear infinite; }
+        .flow-live.trunk { stroke-width: 5; stroke-dasharray: 6 11; }
         .flow-particle { fill: currentColor; filter: drop-shadow(0 0 4px currentColor); pointer-events: none; }
         .flow-solar { color: var(--green); stroke: var(--green); }
         .flow-grid { color: var(--green); stroke: var(--green); }
@@ -2076,7 +2091,7 @@ class DuhnergyCard extends HTMLElement {
           .pv-summary { min-height: 120px; }
           .pv-strings { grid-template-columns: repeat(2, minmax(0,1fr)); }
           .energy-topology { grid-template-columns: 1fr 1fr; grid-template-areas: "inverter inverter" "grid house" "phase ev" "battery battery"; gap: 18px; padding: 10px 0; }
-          .flow-layer { display: none; }
+          .flow-layer, .pv-harness { display: none; }
           .secondary-grid { grid-template-columns: 1fr; }
           .status-strip { grid-template-columns: 1fr; }
           .status-strip span + span { border-top: 1px solid var(--outline); border-left: 0; }

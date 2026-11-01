@@ -15,7 +15,7 @@ For a first installation:
 4. Go to **Settings → Devices & services → Add integration**, search for **Duhnergy!**, and complete the form.
 5. Keep **Mode** set to **Shadow** while checking the mappings, forecast, calculated timeline, and simulator log.
 
-To update to v0.3.1, open Duhnergy! in HACS, choose **Update/download**, restart Home Assistant, then hard-refresh the dashboard browser once so the `?v=0.3.1` card resource is loaded.
+To update to v0.3.2, open Duhnergy! in HACS, choose **Update/download**, restart Home Assistant, then hard-refresh the dashboard browser once so the `?v=0.3.2` card resource is loaded.
 
 The setup form is prefilled with known entity IDs for the target installation. Every source, Solis control, sign convention, currency, and planning setting can be changed later under **Settings → Devices & services → Duhnergy! → Configure**. The Easee device ID is derived from the selected charger status entity's entity-registry device and is never hardcoded.
 
@@ -28,7 +28,7 @@ type: custom:duhnergy-card
 title: Duhnergy!
 ```
 
-The v0.3.1 card is optimised for iPad landscape and other widescreen dashboards. It collapses to a single-column layout on narrow screens and includes:
+The v0.3.2 card is optimised for iPad landscape and other widescreen dashboards. It collapses to a single-column layout on narrow screens and includes:
 
 - An original illustrated technical dashboard drawn entirely with local HTML, CSS, and SVG.
 - A live day/night sky using `sun.sun`, sunrise/current/sunset positioning, a locally calculated lunar phase, and animated Home Assistant weather conditions.
@@ -65,7 +65,7 @@ house_today_entity: sensor.solis_household_load_today_energy
 
 If `weather_entity` is omitted, the card uses the integration's mapped weather entity, then automatically selects the only `weather.*` entity when exactly one is available. Missing optional PV strings, phases, and daily totals render as unavailable without breaking the dashboard.
 
-The default panel layout is **South, East, North, West**. Its Solis mapping is PV Power 1 = South, PV Power 4 = East, PV Power 3 = North, and PV Power 2 = West.
+The default panel layout is **North, South, East, West**. Its Solis mapping remains PV Power 3 = North, PV Power 1 = South, PV Power 4 = East, and PV Power 2 = West.
 
 ## Forecast sources and sensors
 
