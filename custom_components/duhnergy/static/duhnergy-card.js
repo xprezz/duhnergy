@@ -48,14 +48,36 @@ class DuhnergyCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const previousHass = this._hass;
     this._hass = hass;
     const active = this.shadowRoot?.activeElement;
     if (active?.matches("select, input")) return;
-    this._render();
+    if (!previousHass || !this.shadowRoot?.querySelector("ha-card")) {
+      this._render();
+      return;
+    }
+    if (!this._hasRelevantStateChanges(previousHass, hass)) return;
+    this._scheduleRender();
   }
 
   getCardSize() {
     return 14;
+  }
+
+  _hasRelevantStateChanges(previousHass, nextHass) {
+    if (!this._relevantEntities?.size) return true;
+    for (const entityId of this._relevantEntities) {
+      if (previousHass.states?.[entityId] !== nextHass.states?.[entityId]) return true;
+    }
+    return false;
+  }
+
+  _scheduleRender() {
+    if (this._renderFrame) return;
+    this._renderFrame = requestAnimationFrame(() => {
+      this._renderFrame = 0;
+      this._render();
+    });
   }
 
   _state(entityId) {
@@ -1850,9 +1872,6 @@ class DuhnergyCard extends HTMLElement {
 
   _render() {
     if (!this.shadowRoot || !this.config || !this._hass) return;
-    const stableFlowLayer = this.shadowRoot.querySelector(".flow-layer");
-    const flowAnimationState = this._captureFlowAnimationState(stableFlowLayer);
-    stableFlowLayer?.remove();
     const openSections = new Map(
       [...this.shadowRoot.querySelectorAll("details[data-section]")].map((details) => [
         details.dataset.section,
@@ -1868,7 +1887,7 @@ class DuhnergyCard extends HTMLElement {
     const timeline = Array.isArray(planAttributes.timeline) ? planAttributes.timeline : [];
     const logEntries = this._state(this.config.log_entity)?.attributes?.entries || [];
 
-    this.shadowRoot.innerHTML = `
+    const markup = `
       <style>
         :host {
           container-type: inline-size;
@@ -1926,7 +1945,7 @@ class DuhnergyCard extends HTMLElement {
         .horizon-ground { fill: #142942; opacity: .94; }
         .position-line { stroke: #e5e8ad; stroke-width: 1; stroke-dasharray: 2 2; }
         .stars circle { fill: #d9e8ff; animation: twinkle 2s ease-in-out infinite alternate; }
-        .sun-object circle { fill: var(--yellow); stroke: #ffb931; stroke-width: 1.5; filter: drop-shadow(0 0 7px #ffe663); animation: sun-pulse 2s ease-in-out infinite; }
+        .sun-object circle { fill: var(--yellow); stroke: #ffb931; stroke-width: 1.5; animation: sun-pulse 2s ease-in-out infinite; }
         .sun-rays path { fill: none; stroke: var(--yellow); stroke-width: 1.8; stroke-linecap: round; transform-box: fill-box; transform-origin: center; animation: ray-spin 12s linear infinite; }
         .moon-disc { fill: #f1edcf; filter: drop-shadow(0 0 7px rgba(231,237,255,.65)); }
         .moon-shadow { fill: #172743; opacity: .93; }
@@ -1995,14 +2014,14 @@ class DuhnergyCard extends HTMLElement {
         .device-module .orange, .price-values .sell strong { color: var(--orange); }
         .device-module .cyan { color: var(--cyan); }
         .pylon path { fill: none; stroke: #a5b5c7; stroke-width: 4; }
-        .pylon .grid-spark { stroke: var(--green); stroke-width: 2.5; stroke-dasharray: 4 5; animation: grid-live 1.4s linear infinite; }
+        .pylon .grid-spark { stroke: var(--green); stroke-width: 2.5; stroke-dasharray: 4 5; }
         .machine { fill: #85929e; stroke: #d4dde4; stroke-width: 3; }
         .screen { fill: #163f50; stroke: #0a121c; stroke-width: 3; }
-        .wave { fill: none; stroke: #71ddf8; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 10 5; animation: wave-run 1.1s linear infinite; }
-        .led { fill: var(--yellow); animation: led-blink 1.2s steps(1) infinite; }
+        .wave { fill: none; stroke: #71ddf8; stroke-width: 4; stroke-linecap: round; }
+        .led { fill: var(--yellow); }
         .house-roof { fill: #8898aa; stroke: #060b12; stroke-width: 4; }
         .house-body { fill: #b8c5d0; stroke: #172333; stroke-width: 3; }
-        .house-window rect { fill: var(--yellow); stroke: #5b4c19; stroke-width: 2; animation: house-light 4s ease-in-out infinite; }
+        .house-window rect { fill: var(--yellow); stroke: #5b4c19; stroke-width: 2; }
         .house-window path { stroke: #5b4c19; stroke-width: 2; }
         .grass { stroke: var(--green); stroke-width: 7; }
         .house-module .house-roof, .house-module .house-body, .house-module .house-window rect { transition: fill .4s ease, filter .4s ease; }
@@ -2018,7 +2037,7 @@ class DuhnergyCard extends HTMLElement {
         .battery-row { display: grid; grid-template-columns: minmax(120px, 1fr) auto; align-items: center; gap: 8px; width: 100%; }
         .battery-case { fill: #6e7b88; stroke: #cbd4dc; stroke-width: 4; }
         .battery-tip { fill: #8b99a5; }
-        .battery-fill { fill: var(--green); filter: drop-shadow(0 0 6px rgba(120,210,75,.6)); animation: battery-pulse 2s ease-in-out infinite; }
+        .battery-fill { fill: var(--green); }
         .battery-bolt { fill: #b6ee62; }
         .battery-totals { display: grid; grid-template-columns: 1fr 1fr; width: 100%; padding-top: 8px; border-top: 1px solid var(--outline); }
         .battery-totals span { padding: 0 7px; color: var(--green); font-size: 10px; }
@@ -2031,7 +2050,7 @@ class DuhnergyCard extends HTMLElement {
         .charge-bolt { fill: #167aa7; }
         .cable { fill: none; stroke: #62cbf2; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 5 4; }
         .ev-active .charge-bolt { animation: ev-pulse 1.2s ease-in-out infinite; }
-        .ev-active .cable { animation: cable-charge 1s linear infinite; }
+        .ev-active .cable { stroke-width: 5; }
         .phase-module { display: grid; grid-template-rows: 1fr 1fr; padding: 0; }
         .phase-values, .price-values { display: grid; grid-template-columns: repeat(3, 1fr); }
         .phase-values > div, .price-values > div { display: grid; place-items: center; min-width: 0; padding: 9px 5px; }
@@ -2044,9 +2063,8 @@ class DuhnergyCard extends HTMLElement {
         .flow-track-shadow { stroke: #020913; stroke-width: 10; opacity: .9; }
         .flow-track { stroke: var(--outline-bright); stroke-width: 6; opacity: .75; }
         .flow-track-center { fill: none; stroke: #0b1826; stroke-width: 2; stroke-dasharray: 2 7; }
-        .flow-live { --dash-period: 16; fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 4 12; filter: drop-shadow(0 0 3px currentColor); animation: feeder-flow var(--flow-speed, 5s) linear infinite; }
-        .flow-live.trunk { --dash-period: 17; stroke-width: 5; stroke-dasharray: 6 11; }
-        .flow-particle { fill: currentColor; filter: drop-shadow(0 0 4px currentColor); pointer-events: none; }
+        .flow-marker { fill: currentColor; stroke: #fff; stroke-width: .65; opacity: 0; pointer-events: none; transform: translate3d(-20px,-20px,0); will-change: transform; }
+        .flow-marker-secondary { opacity: 0; }
         .flow-solar { color: var(--green); stroke: var(--green); }
         .flow-grid { color: var(--green); stroke: var(--green); }
         .flow-sale { color: var(--orange); stroke: var(--orange); }
@@ -2132,7 +2150,7 @@ class DuhnergyCard extends HTMLElement {
         .empty-state, .empty-chart { display: grid; place-items: center; min-height: 100px; color: var(--muted); font-size: 12px; text-align: center; }
         .footer { color: #71869a; font-size: 10px; text-align: center; }
 
-        @keyframes sun-pulse { 50% { filter: drop-shadow(0 0 12px #ffe663) brightness(1.12); } }
+        @keyframes sun-pulse { 50% { opacity: .78; transform: scale(.94); transform-origin: center; } }
         @keyframes ray-spin { to { transform: rotate(360deg); transform-origin: center; } }
         @keyframes twinkle { to { opacity: .3; } }
         @keyframes cloud-drift { to { transform: translateX(5px); } }
@@ -2141,17 +2159,7 @@ class DuhnergyCard extends HTMLElement {
         @keyframes lightning-flash { 0%, 88%, 94%, 100% { opacity: 0; } 89%, 92% { opacity: 1; } }
         @keyframes fog-shift { to { transform: translateX(8px); opacity: .45; } }
         @keyframes wind-shift { to { transform: translateX(7px); opacity: .35; } }
-        @keyframes grid-live { to { stroke-dashoffset: -18; } }
-        @keyframes wave-run { to { stroke-dashoffset: -30; } }
-        @keyframes led-blink { 50% { opacity: .25; } }
-        @keyframes house-light { 50% { filter: drop-shadow(0 0 7px #ffdf48); } }
-        @keyframes battery-pulse { 50% { opacity: .76; } }
         @keyframes ev-pulse { 50% { transform: scale(1.08); transform-origin: center; } }
-        @keyframes cable-charge { to { stroke-dashoffset: -18; } }
-        @keyframes feeder-flow {
-          from { stroke-dashoffset: 0; }
-          to { stroke-dashoffset: calc(-1 * var(--dash-period)); }
-        }
 
         @container (max-width: 1050px) {
           .energy-topology { column-gap: 70px; }
@@ -2187,7 +2195,7 @@ class DuhnergyCard extends HTMLElement {
         }
         @media (prefers-reduced-motion: reduce) {
           *, *:before, *:after { scroll-behavior: auto !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
-          .flow-particle { display: none; }
+          .flow-marker { display: none; }
         }
       </style>
       <ha-card>
@@ -2270,73 +2278,183 @@ class DuhnergyCard extends HTMLElement {
         </div>
       </ha-card>`;
 
-    if (stableFlowLayer) {
-      this.shadowRoot.querySelector(".flow-layer")?.replaceWith(stableFlowLayer);
-      this._restoreFlowAnimationState(stableFlowLayer, flowAnimationState);
-    }
+    this._patchShadow(markup);
     this._bindEvents(openSections);
     this._scheduleFlowDraw();
   }
 
+  _patchShadow(markup) {
+    const template = document.createElement("template");
+    template.innerHTML = markup;
+    if (!this.shadowRoot.firstChild) {
+      this.shadowRoot.append(template.content.cloneNode(true));
+      return;
+    }
+    this._patchChildren(this.shadowRoot, template.content);
+  }
+
+  _patchChildren(currentParent, nextParent) {
+    const currentChildren = [...currentParent.childNodes];
+    const nextChildren = [...nextParent.childNodes];
+    const count = Math.max(currentChildren.length, nextChildren.length);
+    for (let index = 0; index < count; index += 1) {
+      const current = currentChildren[index];
+      const next = nextChildren[index];
+      if (!current && next) {
+        currentParent.append(next.cloneNode(true));
+        continue;
+      }
+      if (current && !next) {
+        current.remove();
+        continue;
+      }
+      if (
+        current.nodeType !== next.nodeType ||
+        (current.nodeType === Node.ELEMENT_NODE && current.tagName !== next.tagName)
+      ) {
+        current.replaceWith(next.cloneNode(true));
+        continue;
+      }
+      this._patchNode(current, next);
+    }
+  }
+
+  _patchNode(current, next) {
+    if (current.nodeType !== Node.ELEMENT_NODE) {
+      if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
+      return;
+    }
+    if (current.matches(".flow-layer")) return;
+    [...current.attributes].forEach((attribute) => {
+      if (current.matches("details") && attribute.name === "open") return;
+      if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
+    });
+    [...next.attributes].forEach((attribute) => {
+      if (current.matches("details") && attribute.name === "open") return;
+      if (current.getAttribute(attribute.name) !== attribute.value) {
+        current.setAttribute(attribute.name, attribute.value);
+      }
+    });
+    if (current.matches("input, select") && current.value !== next.value) {
+      current.value = next.value;
+    }
+    this._patchChildren(current, next);
+  }
+
+  _bindOnce(element, key, bind) {
+    if (!this._eventBindings) this._eventBindings = new WeakMap();
+    let keys = this._eventBindings.get(element);
+    if (!keys) {
+      keys = new Set();
+      this._eventBindings.set(element, keys);
+    }
+    if (keys.has(key)) return;
+    bind();
+    keys.add(key);
+  }
+
+  _updateRelevantEntities() {
+    const relevant = new Set();
+    const add = (value) => {
+      if (typeof value === "string" && value.includes(".")) relevant.add(value);
+      else if (Array.isArray(value)) value.forEach(add);
+      else if (value && typeof value === "object") Object.values(value).forEach(add);
+    };
+    add(this.config);
+    add(this._state(this.config.plan_entity)?.attributes?.source_entities);
+    this.shadowRoot
+      .querySelectorAll("[data-entity], [data-button], [data-number], [data-range], [data-select], [data-toggle]")
+      .forEach((element) => Object.values(element.dataset).forEach(add));
+    Object.keys(this._hass?.states || {}).forEach((entityId) => {
+      if (
+        entityId.startsWith("sensor.duhnergy_") ||
+        entityId.startsWith("number.duhnergy_") ||
+        entityId.startsWith("select.duhnergy_") ||
+        entityId.startsWith("switch.duhnergy_") ||
+        entityId.startsWith("button.duhnergy_") ||
+        (!this.config.weather_entity && entityId.startsWith("weather."))
+      ) {
+        relevant.add(entityId);
+      }
+    });
+    this._relevantEntities = relevant;
+  }
+
   _bindEvents(openSections) {
     this.shadowRoot.querySelectorAll("[data-entity]").forEach((element) => {
-      const open = (event) => {
-        if (event?.target?.closest?.("button, input, select, summary")) return;
-        event?.stopPropagation();
-        this._openMoreInfo(element.dataset.entity);
-      };
-      element.addEventListener("click", open);
-      element.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          event.stopPropagation();
+      this._bindOnce(element, "more-info", () => {
+        const open = (event) => {
+          if (event?.target?.closest?.("button, input, select, summary")) return;
+          event?.stopPropagation();
           this._openMoreInfo(element.dataset.entity);
-        }
+        };
+        element.addEventListener("click", open);
+        element.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            this._openMoreInfo(element.dataset.entity);
+          }
+        });
       });
     });
-    this.shadowRoot.querySelectorAll("[data-button]").forEach((button) =>
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        this._press(button.dataset.button);
-      }),
-    );
+    this.shadowRoot.querySelectorAll("[data-button]").forEach((button) => {
+      this._bindOnce(button, "button", () => {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this._press(button.dataset.button);
+        });
+      });
+    });
     this.shadowRoot.querySelectorAll("[data-number]").forEach((input) => {
-      input.addEventListener("change", () => this._setNumber(input.dataset.number, input.value));
-      input.addEventListener("blur", () => this._scheduleRenderAfterInteraction());
+      this._bindOnce(input, "number", () => {
+        input.addEventListener("change", () => this._setNumber(input.dataset.number, input.value));
+        input.addEventListener("blur", () => this._scheduleRenderAfterInteraction());
+      });
     });
-    this.shadowRoot.querySelectorAll("[data-range]").forEach((input) =>
-      input.addEventListener("input", () => {
-        const output = this.shadowRoot.querySelector(`[data-output="${input.dataset.range}"]`);
-        const unit = this._state(input.dataset.range)?.attributes?.unit_of_measurement || "";
-        if (output) output.textContent = `${input.value} ${unit}`;
-      }),
-    );
+    this.shadowRoot.querySelectorAll("[data-range]").forEach((input) => {
+      this._bindOnce(input, "range", () => {
+        input.addEventListener("input", () => {
+          const output = this.shadowRoot.querySelector(`[data-output="${input.dataset.range}"]`);
+          const unit = this._state(input.dataset.range)?.attributes?.unit_of_measurement || "";
+          if (output) output.textContent = `${input.value} ${unit}`;
+        });
+      });
+    });
     this.shadowRoot.querySelectorAll("[data-select]").forEach((select) => {
-      select.addEventListener("change", () => this._select(select.dataset.select, select.value));
-      select.addEventListener("blur", () => this._scheduleRenderAfterInteraction());
+      this._bindOnce(select, "select", () => {
+        select.addEventListener("change", () => this._select(select.dataset.select, select.value));
+        select.addEventListener("blur", () => this._scheduleRenderAfterInteraction());
+      });
     });
-    this.shadowRoot.querySelectorAll("[data-period]").forEach((button) =>
-      button.addEventListener("click", () => {
-        this._statsPeriod = button.dataset.period;
-        this._render();
-      }),
-    );
-    this.shadowRoot.querySelectorAll("[data-menu]").forEach((button) =>
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const name = button.dataset.menu;
-        if (!this._openMenus) this._openMenus = new Set();
-        if (this._openMenus.has(name)) this._openMenus.delete(name);
-        else this._openMenus.add(name);
-        this._render();
-      }),
-    );
-    this.shadowRoot.querySelectorAll("[data-toggle]").forEach((button) =>
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        this._hass.callService("switch", "toggle", { entity_id: button.dataset.toggle });
-      }),
-    );
+    this.shadowRoot.querySelectorAll("[data-period]").forEach((button) => {
+      this._bindOnce(button, "period", () => {
+        button.addEventListener("click", () => {
+          this._statsPeriod = button.dataset.period;
+          this._render();
+        });
+      });
+    });
+    this.shadowRoot.querySelectorAll("[data-menu]").forEach((button) => {
+      this._bindOnce(button, "menu", () => {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const name = button.dataset.menu;
+          if (!this._openMenus) this._openMenus = new Set();
+          if (this._openMenus.has(name)) this._openMenus.delete(name);
+          else this._openMenus.add(name);
+          this._render();
+        });
+      });
+    });
+    this.shadowRoot.querySelectorAll("[data-toggle]").forEach((button) => {
+      this._bindOnce(button, "toggle", () => {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this._hass.callService("switch", "toggle", { entity_id: button.dataset.toggle });
+        });
+      });
+    });
     this.shadowRoot.querySelectorAll("details[data-section]").forEach((details) => {
       const remembered = openSections.get(details.dataset.section);
       details.open = remembered === undefined ? details.hasAttribute("open") : remembered;
@@ -2344,24 +2462,32 @@ class DuhnergyCard extends HTMLElement {
     const chart = this.shadowRoot.querySelector(".forecast-wrap");
     const tooltip = chart?.querySelector(".chart-tooltip");
     chart?.querySelectorAll("[data-chart-index]").forEach((hitArea) => {
-      const show = (event) => {
-        if (!tooltip) return;
-        const pointer = event.touches?.[0] || event;
-        const bounds = chart.getBoundingClientRect();
-        tooltip.innerHTML = `<b>${this._escape(hitArea.dataset.time)}</b><br>Buy ${
-          hitArea.dataset.buy
-        } DKK/kWh · Sell ${hitArea.dataset.sell} DKK/kWh<br>Solar ${hitArea.dataset.solar} kW`;
-        tooltip.style.left = `${Math.min(bounds.width - 80, Math.max(80, pointer.clientX - bounds.left))}px`;
-        tooltip.style.top = `${Math.max(55, pointer.clientY - bounds.top)}px`;
-        tooltip.hidden = false;
-      };
-      hitArea.addEventListener("pointermove", show);
-      hitArea.addEventListener("pointerenter", show);
-      hitArea.addEventListener("touchstart", show, { passive: true });
-      hitArea.addEventListener("pointerleave", () => {
-        if (tooltip) tooltip.hidden = true;
+      this._bindOnce(hitArea, "chart", () => {
+        const show = (event) => {
+          if (!tooltip) return;
+          const pointer = event.touches?.[0] || event;
+          const bounds = chart.getBoundingClientRect();
+          tooltip.innerHTML = `<b>${this._escape(hitArea.dataset.time)}</b><br>Buy ${
+            hitArea.dataset.buy
+          } DKK/kWh · Sell ${hitArea.dataset.sell} DKK/kWh<br>Solar ${
+            hitArea.dataset.solar
+          } kW`;
+          tooltip.style.left = `${Math.min(
+            bounds.width - 80,
+            Math.max(80, pointer.clientX - bounds.left),
+          )}px`;
+          tooltip.style.top = `${Math.max(55, pointer.clientY - bounds.top)}px`;
+          tooltip.hidden = false;
+        };
+        hitArea.addEventListener("pointermove", show);
+        hitArea.addEventListener("pointerenter", show);
+        hitArea.addEventListener("touchstart", show, { passive: true });
+        hitArea.addEventListener("pointerleave", () => {
+          if (tooltip) tooltip.hidden = true;
+        });
       });
     });
+    this._updateRelevantEntities();
   }
 
   _openMoreInfo(entityId) {
@@ -2376,70 +2502,129 @@ class DuhnergyCard extends HTMLElement {
   }
 
   connectedCallback() {
+    this._flowConnected = true;
     if (!this._resizeObserver && typeof ResizeObserver !== "undefined") {
       this._resizeObserver = new ResizeObserver(() => this._drawFlows());
       this._resizeObserver.observe(this);
     }
+    if (!this._visibilityHandler && typeof document !== "undefined") {
+      this._visibilityHandler = () => this._syncFlowScheduler();
+      document.addEventListener("visibilitychange", this._visibilityHandler);
+    }
+    if (!this._motionMedia && typeof matchMedia !== "undefined") {
+      this._motionMedia = matchMedia("(prefers-reduced-motion: reduce)");
+      this._motionHandler = () => this._syncFlowScheduler();
+      this._motionMedia.addEventListener?.("change", this._motionHandler);
+    }
+    this._syncFlowScheduler();
   }
 
   disconnectedCallback() {
+    this._flowConnected = false;
     this._resizeObserver?.disconnect();
     this._resizeObserver = undefined;
-    cancelAnimationFrame(this._flowFrame);
+    if (this._visibilityHandler && typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this._visibilityHandler);
+      this._visibilityHandler = undefined;
+    }
+    if (this._motionMedia && this._motionHandler) {
+      this._motionMedia.removeEventListener?.("change", this._motionHandler);
+      this._motionMedia = undefined;
+      this._motionHandler = undefined;
+    }
+    cancelAnimationFrame(this._flowLayoutFrame);
+    cancelAnimationFrame(this._flowAnimationFrame);
+    cancelAnimationFrame(this._renderFrame);
+    this._flowLayoutFrame = 0;
+    this._flowAnimationFrame = 0;
+    this._renderFrame = 0;
     clearTimeout(this._interactionRenderTimer);
   }
 
   _scheduleFlowDraw() {
-    cancelAnimationFrame(this._flowFrame);
-    this._flowFrame = requestAnimationFrame(() => this._drawFlows());
-  }
-
-  _captureFlowAnimationState(layer) {
-    if (!layer) return null;
-    let svgTime = null;
-    try {
-      svgTime = Number(layer.getCurrentTime?.());
-    } catch {
-      svgTime = null;
-    }
-    const cssTimes = new Map();
-    layer.querySelectorAll("[data-flow-index]").forEach((group) => {
-      const animation = group
-        .querySelector(".flow-live")
-        ?.getAnimations?.()
-        .find((candidate) => candidate.animationName === "feeder-flow");
-      const currentTime = Number(animation?.currentTime);
-      if (Number.isFinite(currentTime)) cssTimes.set(group.dataset.flowIndex, currentTime);
+    cancelAnimationFrame(this._flowLayoutFrame);
+    this._flowLayoutFrame = requestAnimationFrame(() => {
+      this._flowLayoutFrame = 0;
+      this._drawFlows();
     });
-    return {
-      capturedAt: typeof performance !== "undefined" ? performance.now() : Date.now(),
-      cssTimes,
-      svgTime: Number.isFinite(svgTime) ? svgTime : null,
-    };
   }
 
-  _restoreFlowAnimationState(layer, state) {
-    if (!layer || !state) return;
-    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-    const elapsedMilliseconds = Math.max(0, now - state.capturedAt);
-    if (state.svgTime != null) {
-      try {
-        layer.setCurrentTime?.(state.svgTime + elapsedMilliseconds / 1000);
-      } catch {
-        // Browsers without SVG timeline controls keep their native animation state.
+  _syncFlowScheduler() {
+    const reducedMotion = Boolean(this._motionMedia?.matches);
+    const hidden = typeof document !== "undefined" && document.hidden;
+    const moving = [...(this._flowEntries?.values() || [])].some(
+      (entry) => entry.targetOpacity > 0 || entry.opacity > 0.01,
+    );
+    const shouldRun = this._flowConnected && !reducedMotion && !hidden && moving;
+    if (!shouldRun) {
+      cancelAnimationFrame(this._flowAnimationFrame);
+      this._flowAnimationFrame = 0;
+      this._flowLastFrame = 0;
+      return;
+    }
+    if (!this._flowAnimationFrame) {
+      this._flowAnimationFrame = requestAnimationFrame((timestamp) =>
+        this._animateFlows(timestamp),
+      );
+    }
+  }
+
+  _animateFlows(timestamp) {
+    this._flowAnimationFrame = 0;
+    if (
+      !this._flowConnected ||
+      this._motionMedia?.matches ||
+      (typeof document !== "undefined" && document.hidden)
+    ) {
+      this._flowLastFrame = 0;
+      return;
+    }
+    if (!this._flowLastFrame) this._flowLastFrame = timestamp;
+    const elapsedMilliseconds = timestamp - this._flowLastFrame;
+    if (elapsedMilliseconds < 1000 / 30) {
+      this._syncFlowScheduler();
+      return;
+    }
+    this._flowLastFrame = timestamp;
+    const elapsed = Math.max(0, elapsedMilliseconds / 1000);
+    const smoothing = Math.min(1, elapsed * 4);
+    let moving = false;
+    this._flowEntries?.forEach((entry) => {
+      entry.velocity += (entry.targetVelocity - entry.velocity) * smoothing;
+      entry.opacity += (entry.targetOpacity - entry.opacity) * smoothing;
+      if (!entry.targetOpacity && entry.opacity < 0.01) entry.opacity = 0;
+      if (entry.totalLength > 0) {
+        entry.phase =
+          ((entry.phase + (entry.velocity * elapsed) / entry.totalLength) % 1 + 1) % 1;
       }
-    }
-    requestAnimationFrame(() => {
-      layer.querySelectorAll("[data-flow-index]").forEach((group) => {
-        const savedTime = state.cssTimes.get(group.dataset.flowIndex);
-        if (!Number.isFinite(savedTime)) return;
-        const animation = group
-          .querySelector(".flow-live")
-          ?.getAnimations?.()
-          .find((candidate) => candidate.animationName === "feeder-flow");
-        if (animation) animation.currentTime = savedTime + elapsedMilliseconds;
+      entry.markers.forEach((marker, markerIndex) => {
+        const offset = markerIndex / entry.markers.length;
+        const point = this._pointAlongFlow(entry, (entry.phase + offset) % 1);
+        marker.style.transform = `translate3d(${point[0].toFixed(2)}px,${point[1].toFixed(
+          2,
+        )}px,0)`;
+        marker.style.opacity = String(Math.max(0, Math.min(1, entry.opacity)));
       });
+      if (entry.targetOpacity > 0 || entry.opacity > 0.01) moving = true;
     });
+    this._flowRenderedFrames = (this._flowRenderedFrames || 0) + 1;
+    if (moving) this._syncFlowScheduler();
+  }
+
+  _pointAlongFlow(entry, phase) {
+    const distance = phase * entry.totalLength;
+    let travelled = 0;
+    for (const segment of entry.segments) {
+      if (travelled + segment.length >= distance) {
+        const ratio = segment.length ? (distance - travelled) / segment.length : 0;
+        return [
+          segment.from[0] + (segment.to[0] - segment.from[0]) * ratio,
+          segment.from[1] + (segment.to[1] - segment.from[1]) * ratio,
+        ];
+      }
+      travelled += segment.length;
+    }
+    return entry.points.at(-1) || [0, 0];
   }
 
   _anchor(container, selector, side, position) {
@@ -2458,25 +2643,37 @@ class DuhnergyCard extends HTMLElement {
     return [x + box.width, alongY];
   }
 
-  _curve(from, to, flow = {}, index = 0) {
+  _routePoints(from, to, flow = {}, index = 0) {
     const [ax, ay] = from;
     const [bx, by] = to;
-    const round = (value) => Math.round(value * 10) / 10;
-    if (flow.route === "straight") {
-      return `M${round(ax)},${round(ay)} L${round(bx)},${round(by)}`;
-    }
+    if (flow.route === "straight") return [from, to];
     if (flow.route === "vertical") {
       const direction = by >= ay ? 1 : -1;
       const laneDistance = Math.min(Math.abs(by - ay) / 2, 20 + index * 11);
       const laneY = ay + direction * laneDistance;
-      return `M${round(ax)},${round(ay)} L${round(ax)},${round(laneY)} L${round(
-        bx,
-      )},${round(laneY)} L${round(bx)},${round(by)}`;
+      return [from, [ax, laneY], [bx, laneY], to];
     }
     const laneX = ax + (bx - ax) / 2;
-    return `M${round(ax)},${round(ay)} L${round(laneX)},${round(ay)} L${round(
-      laneX,
-    )},${round(by)} L${round(bx)},${round(by)}`;
+    return [from, [laneX, ay], [laneX, by], to];
+  }
+
+  _pathFromPoints(points) {
+    const round = (value) => Math.round(value * 10) / 10;
+    return points
+      .map((point, index) => `${index ? "L" : "M"}${round(point[0])},${round(point[1])}`)
+      .join(" ");
+  }
+
+  _flowGeometry(points) {
+    const segments = points.slice(1).map((to, index) => {
+      const from = points[index];
+      return { from, to, length: Math.hypot(to[0] - from[0], to[1] - from[1]) };
+    });
+    return {
+      points,
+      segments,
+      totalLength: segments.reduce((sum, segment) => sum + segment.length, 0),
+    };
   }
 
   _drawFlows() {
@@ -2494,101 +2691,90 @@ class DuhnergyCard extends HTMLElement {
         const start = this._anchor(container, ...flow.from);
         const end = this._anchor(container, ...flow.to);
         if (!start || !end) return null;
-        const [from, to] = flow.reversed ? [end, start] : [start, end];
-        const path = this._curve(from, to, flow, index);
+        const points = this._routePoints(start, end, flow, index);
+        const path = this._pathFromPoints(points);
         const intensity = Math.max(0.35, Math.min(1, Number(flow.power || 0) / 5000));
-        return { flow, index, from, path, intensity, speed: flow.speed || 5 };
+        return { flow, index, from: start, path, points, intensity, speed: flow.speed || 5 };
       })
       .filter(Boolean);
     const signature = descriptors
       .map(
         ({ flow, index }) =>
-          `${index}:${flow.tone}:${flow.active ? 1 : 0}:${flow.reversed ? 1 : 0}:${
-            flow.trunk ? 1 : 0
-          }:${flow.noJunction ? 1 : 0}`,
+          `${index}:${flow.trunk ? 1 : 0}:${flow.noJunction ? 1 : 0}`,
       )
       .join("|");
 
     if (layer.dataset.flowSignature !== signature) {
       layer.innerHTML = descriptors
-        .map(({ flow, index, from, path, intensity, speed }) => {
+        .map(({ flow, index, from, path, intensity }) => {
           const junction = flow.noJunction
             ? ""
             : `<circle class="flow-junction flow-${flow.tone}" cx="${from[0]}" cy="${
                 from[1]
               }" r="${3 + intensity * 2}"></circle>`;
-          const particles = flow.active
-            ? [0, 1, 2]
-                .map((particleIndex) => {
-                  const begin = -((speed * particleIndex) / 3);
-                  return `<circle class="flow-particle flow-${flow.tone}" r="${
-                    2.5 + intensity
-                  }" opacity="0">
-                    <animateMotion dur="${speed}s" begin="${begin}s" repeatCount="indefinite" path="${path}"></animateMotion>
-                    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.08;.92;1" dur="${speed}s" begin="${begin}s" repeatCount="indefinite"></animate>
-                  </circle>`;
-                })
-                .join("")
-            : "";
           return `<g data-flow-index="${index}">
             <path class="flow-track-shadow" d="${path}"></path>
             <path class="flow-track${flow.trunk ? " trunk" : ""}" d="${path}"></path>
-            <path class="flow-track-center" d="${path}"></path>${junction}${
-              flow.active
-                ? `<path class="flow-live flow-${flow.tone}${
-                    flow.trunk ? " trunk" : ""
-                  }" data-speed="${speed}" style="--flow-speed:${speed}s;opacity:${
-                    0.55 + intensity * 0.45
-                  }" d="${path}"></path>${particles}`
+            <path class="flow-track-center" d="${path}"></path>${junction}
+            <circle class="flow-marker flow-${flow.tone}" r="${2.6 + intensity}"></circle>
+            ${
+              flow.trunk
+                ? `<circle class="flow-marker flow-marker-secondary flow-${flow.tone}" r="${
+                    2.2 + intensity
+                  }"></circle>`
                 : ""
             }
           </g>`;
         })
         .join("");
       layer.dataset.flowSignature = signature;
-      return;
+      this._flowEntries = new Map();
     }
 
-    descriptors.forEach(({ flow, index, from, path, intensity, speed }) => {
-      const group = layer.querySelector(`[data-flow-index="${index}"]`);
-      if (!group) return;
-      group.querySelectorAll(".flow-track-shadow, .flow-track, .flow-track-center, .flow-live").forEach(
-        (element) => element.setAttribute("d", path),
-      );
-      const junction = group.querySelector(".flow-junction");
+    descriptors.forEach(({ flow, index, from, path, points, intensity, speed }) => {
+      let entry = this._flowEntries?.get(index);
+      if (!entry) {
+        const group = layer.querySelector(`[data-flow-index="${index}"]`);
+        if (!group) return;
+        const clock = typeof performance !== "undefined" ? performance.now() : Date.now();
+        entry = {
+          group,
+          paths: [...group.querySelectorAll(".flow-track-shadow, .flow-track, .flow-track-center")],
+          junction: group.querySelector(".flow-junction"),
+          markers: [...group.querySelectorAll(".flow-marker")],
+          phase: ((clock / 1000 / speed) % 1 + 1) % 1,
+          velocity: 0,
+          targetVelocity: 0,
+          opacity: 0,
+          targetOpacity: 0,
+          initialized: false,
+        };
+        this._flowEntries.set(index, entry);
+      }
+      entry.paths.forEach((element) => element.setAttribute("d", path));
+      const junction = entry.junction;
       if (junction) {
         junction.setAttribute("cx", from[0]);
         junction.setAttribute("cy", from[1]);
         junction.setAttribute("r", 3 + intensity * 2);
+        junction.setAttribute("class", `flow-junction flow-${flow.tone}`);
       }
-      const live = group.querySelector(".flow-live");
-      if (live) {
-        live.style.opacity = 0.55 + intensity * 0.45;
-        const previousSpeed = Number(live.dataset.speed || speed);
-        if (Math.abs(previousSpeed - speed) > 0.01) {
-          const animation = live.getAnimations?.().find(
-            (candidate) => candidate.animationName === "feeder-flow",
-          );
-          const previousDuration = previousSpeed * 1000;
-          const currentTime = Number(animation?.currentTime);
-          const progress =
-            animation && Number.isFinite(currentTime) && previousDuration > 0
-              ? (((currentTime % previousDuration) + previousDuration) % previousDuration) /
-                previousDuration
-              : null;
-          live.style.setProperty("--flow-speed", `${speed}s`);
-          live.dataset.speed = speed;
-          if (animation && progress != null) {
-            animation.effect?.updateTiming({ duration: speed * 1000, iterations: Infinity });
-            animation.currentTime = progress * speed * 1000;
-          }
-        }
-      }
-      group.querySelectorAll(".flow-particle").forEach((particle) => {
-        particle.setAttribute("r", 2.5 + intensity);
-        particle.querySelector("animateMotion")?.setAttribute("path", path);
+      entry.markers.forEach((marker, markerIndex) => {
+        marker.setAttribute(
+          "class",
+          `flow-marker${markerIndex ? " flow-marker-secondary" : ""} flow-${flow.tone}`,
+        );
+        marker.setAttribute("r", 2.4 + intensity - markerIndex * 0.35);
       });
+      Object.assign(entry, this._flowGeometry(points));
+      entry.targetVelocity = (entry.totalLength / speed) * (flow.reversed ? -1 : 1);
+      entry.targetOpacity = flow.active ? 0.68 + intensity * 0.3 : 0;
+      if (!entry.initialized) {
+        entry.velocity = entry.targetVelocity;
+        entry.initialized = true;
+      }
     });
+    this._syncFlowScheduler();
   }
 
   _scheduleRenderAfterInteraction() {
