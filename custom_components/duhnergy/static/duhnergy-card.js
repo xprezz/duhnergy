@@ -1061,10 +1061,47 @@ class DuhnergyCard extends HTMLElement {
       value: this._entityNumber(entityId, null),
     }));
     const pvEntities = Array.isArray(this.config.pv_entities) ? this.config.pv_entities : [];
-    const strings = [0, 1, 2, 3].map((index) => {
+    const pvLayout = [
+      { index: 0, direction: "SOUTH" },
+      { index: 3, direction: "EAST" },
+      { index: 2, direction: "NORTH" },
+      { index: 1, direction: "WEST" },
+    ];
+    const strings = pvLayout.map(({ index, direction }) => {
       const entityId = pvEntities[index] || sources[`solar_surface_${index + 1}`];
-      return { entityId, power: this._entityNumber(entityId, null), index };
+      return {
+        entityId,
+        power: this._entityNumber(entityId, null),
+        index,
+        direction,
+      };
     });
+    const batteryDischarging = Math.abs(battery) > 20 && !batteryCharging;
+    const gridSupplying = Math.abs(grid) > 20 && gridImporting;
+    const supplyCandidates = [
+      {
+        key: "grid",
+        label: "GRID",
+        power: gridSupplying ? Math.min(house, Math.abs(grid)) : 0,
+        tone: "grid-source",
+      },
+      {
+        key: "battery",
+        label: "BATTERY",
+        power: batteryDischarging ? Math.min(house, Math.abs(battery)) : 0,
+        tone: "battery-source",
+      },
+    ];
+    supplyCandidates.push({
+      key: "pv",
+      label: "PV",
+      power: Math.max(0, house - supplyCandidates.reduce((total, source) => total + source.power, 0)),
+      tone: "solar-source",
+    });
+    const mainHouseSource =
+      house > 20
+        ? supplyCandidates.sort((a, b) => b.power - a.power)[0]
+        : { key: "idle", label: "IDLE", power: 0, tone: "load" };
     const maximumFlow = Math.max(200, solar, house, Math.abs(grid), Math.abs(battery), ev);
     const speed = (power) => Math.max(0.45, 2.4 - (Math.abs(power) / maximumFlow) * 1.8);
     this._flowModel = [
@@ -1075,6 +1112,7 @@ class DuhnergyCard extends HTMLElement {
         active: (item.power || 0) > 20,
         power: item.power || 0,
         speed: speed(item.power || 0),
+        route: "vertical",
       })),
       {
         from: [".grid-module", "right", 0.5],
@@ -1084,6 +1122,7 @@ class DuhnergyCard extends HTMLElement {
         reversed: !gridImporting,
         power: Math.abs(grid),
         speed: speed(grid),
+        route: "horizontal",
       },
       {
         from: [".battery-module", "right", 0.5],
@@ -1093,14 +1132,16 @@ class DuhnergyCard extends HTMLElement {
         reversed: batteryCharging,
         power: Math.abs(battery),
         speed: speed(battery),
+        route: "horizontal",
       },
       {
         from: [".inverter-module", "right", 0.35],
         to: [".house-module", "left", 0.5],
-        tone: "load",
+        tone: mainHouseSource.tone,
         active: house > 20,
         power: house,
         speed: speed(house),
+        route: "horizontal",
       },
       {
         from: [".inverter-module", "right", 0.75],
@@ -1109,6 +1150,7 @@ class DuhnergyCard extends HTMLElement {
         active: ev > 20,
         power: ev,
         speed: speed(ev),
+        route: "horizontal",
       },
     ];
     const systemStatus = this._value(this.config.status_entity, "Loading");
@@ -1129,12 +1171,15 @@ class DuhnergyCard extends HTMLElement {
       <div class="pv-strings">
         ${strings
           .map(
-            ({ entityId, power, index }) => `<section class="tech-panel pv-string ${
+            ({ entityId, power, index, direction }) => `<section class="tech-panel pv-string ${
               power == null ? "is-unavailable" : ""
             }" data-entity="${this._escape(entityId || "")}" role="button" tabindex="0" style="--pv-level:${
               power == null ? 0 : Math.min(1, power / 1500)
             }">
-              <h3>PANEL ${index + 1}</h3>${this._panelIllustration(power || 0, power == null)}
+              <h3>${direction} <small>PV ${index + 1}</small></h3>${this._panelIllustration(
+                power || 0,
+                power == null,
+              )}
               <div><span>${power == null ? "OFFLINE" : power > 20 ? "ACTIVE" : "IDLE"}</span>${this._metricValue(
                 power,
                 0,
@@ -1164,12 +1209,12 @@ class DuhnergyCard extends HTMLElement {
             "W",
           )}
         </section>
-        <section class="tech-panel device-module house-module" data-entity="sensor.duhnergy_house_power" role="button" tabindex="0">
+        <section class="tech-panel device-module house-module source-${mainHouseSource.key}" data-entity="sensor.duhnergy_house_power" role="button" tabindex="0">
           <div class="device-art">${this._deviceArt("house")}</div><div class="device-copy"><h3>HOUSE</h3><span>ACTIVE USAGE</span>${this._metricValue(
             house,
             0,
             "W",
-          )}<em>TODAY ${this._format(houseToday, 1)} kWh</em></div>
+          )}<em>MAIN SOURCE ${mainHouseSource.label} · TODAY ${this._format(houseToday, 1)} kWh</em></div>
         </section>
         <section class="tech-panel phase-module">
           <div class="phase-values">${phases
@@ -1207,7 +1252,9 @@ class DuhnergyCard extends HTMLElement {
             1,
           )} kWh</b></span></div>
         </section>
-        <section class="tech-panel device-module ev-module" data-entity="sensor.duhnergy_ev_power" role="button" tabindex="0">
+        <section class="tech-panel device-module ev-module ${
+          ev > 20 ? "ev-active" : ""
+        }" data-entity="sensor.duhnergy_ev_power" role="button" tabindex="0">
           <div class="device-art">${this._deviceArt("ev")}</div><div class="device-copy"><h3>EV CHARGER</h3><span>${
             ev > 20 ? "ACTIVE" : "IDLE"
           }</span>${this._metricValue(ev, 0, "W")}<em>TODAY ${this._format(evToday, 1)} kWh</em></div>
@@ -1804,7 +1851,7 @@ class DuhnergyCard extends HTMLElement {
         .position-line { stroke: #e5e8ad; stroke-width: 1; stroke-dasharray: 2 2; }
         .stars circle { fill: #d9e8ff; animation: twinkle 2s ease-in-out infinite alternate; }
         .sun-object circle { fill: var(--yellow); stroke: #ffb931; stroke-width: 1.5; filter: drop-shadow(0 0 7px #ffe663); animation: sun-pulse 2s ease-in-out infinite; }
-        .sun-rays path { fill: none; stroke: var(--yellow); stroke-width: 1.8; stroke-linecap: round; animation: ray-spin 12s linear infinite; }
+        .sun-rays path { fill: none; stroke: var(--yellow); stroke-width: 1.8; stroke-linecap: round; transform-box: fill-box; transform-origin: center; animation: ray-spin 12s linear infinite; }
         .moon-disc { fill: #f1edcf; filter: drop-shadow(0 0 7px rgba(231,237,255,.65)); }
         .moon-shadow { fill: #172743; opacity: .93; }
         .sky-labels { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; height: 24px; padding: 0 9px; color: #aebbd0; background: #122944; font-weight: 900; }
@@ -1830,6 +1877,7 @@ class DuhnergyCard extends HTMLElement {
         .pv-string { display: flex; flex-direction: column; min-height: 155px; padding: 8px 10px 10px; }
         .pv-string h3, .device-module h3, .forecast-heading h3 { margin: 0; font-size: clamp(16px, 1.8vw, 25px); font-weight: 950; letter-spacing: .8px; text-align: center; }
         .pv-string h3 { color: var(--yellow); }
+        .pv-string h3 small { color: #aebed0; font-size: .48em; letter-spacing: .7px; vertical-align: middle; }
         .panel-art { width: 100%; height: 92px; filter: drop-shadow(0 0 calc(2px + var(--pv-level) * 9px) rgba(255,218,76,calc(.08 + var(--pv-level) * .45))); }
         .panel-frame { fill: #9aa9b7; stroke: #d9e3e9; stroke-width: 2; }
         .panel-glass { fill: url(#cellGradient); stroke: #7d91ab; stroke-width: 1; }
@@ -1844,7 +1892,7 @@ class DuhnergyCard extends HTMLElement {
 
         .energy-topology { position: relative; display: grid; grid-template-columns: minmax(220px, .95fr) minmax(245px, 1.05fr) minmax(220px, .95fr); grid-template-areas:
           "grid inverter house"
-          "phase battery ev"; gap: 48px 80px; min-height: 390px; padding: 20px 0; }
+          "phase battery ev"; gap: 72px 112px; min-height: 455px; padding: 42px 0 24px; }
         .flow-layer { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
         .device-module, .phase-module { z-index: 1; min-height: 156px; padding: 12px; }
         .grid-module { grid-area: grid; }
@@ -1874,6 +1922,16 @@ class DuhnergyCard extends HTMLElement {
         .house-window rect { fill: var(--yellow); stroke: #5b4c19; stroke-width: 2; animation: house-light 4s ease-in-out infinite; }
         .house-window path { stroke: #5b4c19; stroke-width: 2; }
         .grass { stroke: var(--green); stroke-width: 7; }
+        .house-module .house-roof, .house-module .house-body, .house-module .house-window rect { transition: fill .4s ease, filter .4s ease; }
+        .house-module.source-grid .house-roof { fill: #479ee4; }
+        .house-module.source-grid .house-body { fill: #8dc9ef; }
+        .house-module.source-grid .house-window rect { fill: #d7efff; }
+        .house-module.source-pv .house-roof { fill: #e8b93e; }
+        .house-module.source-pv .house-body { fill: #f2d979; }
+        .house-module.source-pv .house-window rect { fill: #fff29a; }
+        .house-module.source-battery .house-roof { fill: #58ad50; }
+        .house-module.source-battery .house-body { fill: #91d07a; }
+        .house-module.source-battery .house-window rect { fill: #d9f5ad; }
         .battery-row { display: grid; grid-template-columns: minmax(120px, 1fr) auto; align-items: center; gap: 8px; width: 100%; }
         .battery-case { fill: #6e7b88; stroke: #cbd4dc; stroke-width: 4; }
         .battery-tip { fill: #8b99a5; }
@@ -1887,8 +1945,10 @@ class DuhnergyCard extends HTMLElement {
         .car-window { fill: #173b57; stroke: #071421; stroke-width: 3; }
         .wheel { fill: #071421; stroke: #8fa3b7; stroke-width: 3; }
         .charger { fill: #a7dff4; stroke: #071421; stroke-width: 4; }
-        .charge-bolt { fill: #167aa7; animation: ev-pulse 1.2s ease-in-out infinite; }
-        .cable { fill: none; stroke: #62cbf2; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 5 4; animation: cable-charge 1s linear infinite; }
+        .charge-bolt { fill: #167aa7; }
+        .cable { fill: none; stroke: #62cbf2; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 5 4; }
+        .ev-active .charge-bolt { animation: ev-pulse 1.2s ease-in-out infinite; }
+        .ev-active .cable { animation: cable-charge 1s linear infinite; }
         .phase-module { display: grid; grid-template-rows: 1fr 1fr; padding: 0; }
         .phase-values, .price-values { display: grid; grid-template-columns: repeat(3, 1fr); }
         .phase-values > div, .price-values > div { display: grid; place-items: center; min-width: 0; padding: 9px 5px; }
@@ -1902,11 +1962,15 @@ class DuhnergyCard extends HTMLElement {
         .flow-track { stroke: var(--outline-bright); stroke-width: 6; opacity: .75; }
         .flow-track-center { fill: none; stroke: #0b1826; stroke-width: 2; stroke-dasharray: 2 7; }
         .flow-live { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 4 12; filter: drop-shadow(0 0 3px currentColor); animation: feeder-flow var(--flow-speed, 1.2s) linear infinite; }
+        .flow-particle { fill: currentColor; filter: drop-shadow(0 0 4px currentColor); pointer-events: none; }
         .flow-solar { color: var(--green); stroke: var(--green); }
         .flow-grid { color: var(--green); stroke: var(--green); }
         .flow-sale { color: var(--orange); stroke: var(--orange); }
         .flow-battery { color: var(--violet); stroke: var(--violet); }
         .flow-load, .flow-ev { color: var(--cyan); stroke: var(--cyan); }
+        .flow-grid-source { color: #4aaeff; stroke: #4aaeff; }
+        .flow-solar-source { color: var(--yellow); stroke: var(--yellow); }
+        .flow-battery-source { color: var(--green); stroke: var(--green); }
         .flow-junction { fill: #0c1f34; stroke: currentColor; stroke-width: 2; }
         .forecast-panel { min-height: 300px; padding: 9px 12px 4px; }
         .forecast-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
@@ -1984,7 +2048,7 @@ class DuhnergyCard extends HTMLElement {
         .empty-state, .empty-chart { display: grid; place-items: center; min-height: 100px; color: var(--muted); font-size: 12px; text-align: center; }
         .footer { color: #71869a; font-size: 10px; text-align: center; }
 
-        @keyframes sun-pulse { 50% { transform: scale(1.08); } }
+        @keyframes sun-pulse { 50% { filter: drop-shadow(0 0 12px #ffe663) brightness(1.12); } }
         @keyframes ray-spin { to { transform: rotate(360deg); transform-origin: center; } }
         @keyframes twinkle { to { opacity: .3; } }
         @keyframes cloud-drift { to { transform: translateX(5px); } }
@@ -2003,7 +2067,7 @@ class DuhnergyCard extends HTMLElement {
         @keyframes feeder-flow { to { stroke-dashoffset: -32; } }
 
         @container (max-width: 1050px) {
-          .energy-topology { column-gap: 48px; }
+          .energy-topology { column-gap: 70px; }
           .metric-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
           .control-grid, .extra-settings, .command-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
         }
@@ -2036,6 +2100,7 @@ class DuhnergyCard extends HTMLElement {
         }
         @media (prefers-reduced-motion: reduce) {
           *, *:before, *:after { scroll-behavior: auto !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
+          .flow-particle { display: none; }
         }
       </style>
       <ha-card>
@@ -2254,15 +2319,22 @@ class DuhnergyCard extends HTMLElement {
     return [x + box.width, alongY];
   }
 
-  _curve(from, to) {
+  _curve(from, to, flow = {}, index = 0) {
     const [ax, ay] = from;
     const [bx, by] = to;
-    const horizontal = Math.abs(bx - ax) >= Math.abs(by - ay);
-    const bend = horizontal ? (bx - ax) * 0.45 : (by - ay) * 0.45;
-    const c1 = horizontal ? [ax + bend, ay] : [ax, ay + bend];
-    const c2 = horizontal ? [bx - bend, by] : [bx, by - bend];
     const round = (value) => Math.round(value * 10) / 10;
-    return `M${round(ax)},${round(ay)} C${round(c1[0])},${round(c1[1])} ${round(c2[0])},${round(c2[1])} ${round(bx)},${round(by)}`;
+    if (flow.route === "vertical") {
+      const direction = by >= ay ? 1 : -1;
+      const laneDistance = Math.min(Math.abs(by - ay) / 2, 20 + index * 11);
+      const laneY = ay + direction * laneDistance;
+      return `M${round(ax)},${round(ay)} L${round(ax)},${round(laneY)} L${round(
+        bx,
+      )},${round(laneY)} L${round(bx)},${round(by)}`;
+    }
+    const laneX = ax + (bx - ax) / 2;
+    return `M${round(ax)},${round(ay)} L${round(laneX)},${round(ay)} L${round(
+      laneX,
+    )},${round(by)} L${round(bx)},${round(by)}`;
   }
 
   _drawFlows() {
@@ -2275,13 +2347,29 @@ class DuhnergyCard extends HTMLElement {
     if (getComputedStyle(layer).display === "none") return;
     layer.setAttribute("viewBox", `0 0 ${Math.round(container.width)} ${Math.round(container.height)}`);
 
+    const markerColours = {
+      solar: "#78d24b",
+      grid: "#78d24b",
+      sale: "#f5a14a",
+      battery: "#ab91ff",
+      ev: "#67d5ff",
+      "grid-source": "#4aaeff",
+      "solar-source": "#ffda4c",
+      "battery-source": "#78d24b",
+    };
+    const definitions = `<defs>${Object.entries(markerColours)
+      .map(
+        ([tone, colour]) =>
+          `<marker id="flow-arrow-${tone}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${colour}"></path></marker>`,
+      )
+      .join("")}</defs>`;
     const markup = this._flowModel
-      .map((flow) => {
+      .map((flow, index) => {
         const start = this._anchor(container, ...flow.from);
         const end = this._anchor(container, ...flow.to);
         if (!start || !end) return "";
         const [from, to] = flow.reversed ? [end, start] : [start, end];
-        const path = this._curve(from, to);
+        const path = this._curve(from, to, flow, index);
         const intensity = Math.max(0.35, Math.min(1, Number(flow.power || 0) / 5000));
         const junction = `<circle class="flow-junction flow-${flow.tone}" cx="${from[0]}" cy="${
           from[1]
@@ -2290,14 +2378,19 @@ class DuhnergyCard extends HTMLElement {
           <path class="flow-track${flow.trunk ? " trunk" : ""}" d="${path}"></path>
           <path class="flow-track-center" d="${path}"></path>${junction}${
           flow.active
-            ? `<path class="flow-live flow-${flow.tone}${flow.trunk ? " trunk" : ""}" style="--flow-speed:${
+            ? `<path class="flow-live flow-${flow.tone}${flow.trunk ? " trunk" : ""}" marker-end="url(#flow-arrow-${
+                flow.tone
+              })" style="--flow-speed:${
                 flow.speed || 1.2
-              }s;opacity:${0.55 + intensity * 0.45}" d="${path}"></path>`
+              }s;opacity:${0.55 + intensity * 0.45}" d="${path}"></path>
+              <circle class="flow-particle flow-${flow.tone}" r="${2.5 + intensity}">
+                <animateMotion dur="${flow.speed || 1.2}s" repeatCount="indefinite" path="${path}"></animateMotion>
+              </circle>`
             : ""
         }`;
       })
       .join("");
-    layer.innerHTML = markup;
+    layer.innerHTML = definitions + markup;
   }
 
   _scheduleRenderAfterInteraction() {
