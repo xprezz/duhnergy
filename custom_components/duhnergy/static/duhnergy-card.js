@@ -2537,6 +2537,7 @@ class DuhnergyCard extends HTMLElement {
     cancelAnimationFrame(this._renderFrame);
     this._flowLayoutFrame = 0;
     this._flowAnimationFrame = 0;
+    this._flowLastFrame = null;
     this._renderFrame = 0;
     clearTimeout(this._interactionRenderTimer);
   }
@@ -2559,7 +2560,7 @@ class DuhnergyCard extends HTMLElement {
     if (!shouldRun) {
       cancelAnimationFrame(this._flowAnimationFrame);
       this._flowAnimationFrame = 0;
-      this._flowLastFrame = 0;
+      this._flowLastFrame = null;
       return;
     }
     if (!this._flowAnimationFrame) {
@@ -2576,17 +2577,17 @@ class DuhnergyCard extends HTMLElement {
       this._motionMedia?.matches ||
       (typeof document !== "undefined" && document.hidden)
     ) {
-      this._flowLastFrame = 0;
+      this._flowLastFrame = null;
       return;
     }
-    if (!this._flowLastFrame) this._flowLastFrame = timestamp;
-    const elapsedMilliseconds = timestamp - this._flowLastFrame;
-    if (elapsedMilliseconds < 1000 / 30) {
+    if (this._flowLastFrame == null) {
+      this._flowLastFrame = timestamp;
       this._syncFlowScheduler();
       return;
     }
+    const elapsedMilliseconds = Math.min(100, Math.max(0, timestamp - this._flowLastFrame));
     this._flowLastFrame = timestamp;
-    const elapsed = Math.max(0, elapsedMilliseconds / 1000);
+    const elapsed = elapsedMilliseconds / 1000;
     const smoothing = Math.min(1, elapsed * 4);
     let moving = false;
     this._flowEntries?.forEach((entry) => {
@@ -2600,9 +2601,7 @@ class DuhnergyCard extends HTMLElement {
       entry.markers.forEach((marker, markerIndex) => {
         const offset = markerIndex / entry.markers.length;
         const point = this._pointAlongFlow(entry, (entry.phase + offset) % 1);
-        marker.style.transform = `translate3d(${point[0].toFixed(2)}px,${point[1].toFixed(
-          2,
-        )}px,0)`;
+        marker.style.transform = `translate3d(${point[0]}px,${point[1]}px,0)`;
         marker.style.opacity = String(Math.max(0, Math.min(1, entry.opacity)));
       });
       if (entry.targetOpacity > 0 || entry.opacity > 0.01) moving = true;
