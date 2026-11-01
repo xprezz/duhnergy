@@ -1850,6 +1850,9 @@ class DuhnergyCard extends HTMLElement {
 
   _render() {
     if (!this.shadowRoot || !this.config || !this._hass) return;
+    const stableFlowLayer = this.shadowRoot.querySelector(".flow-layer");
+    const flowAnimationState = this._captureFlowAnimationState(stableFlowLayer);
+    stableFlowLayer?.remove();
     const openSections = new Map(
       [...this.shadowRoot.querySelectorAll("details[data-section]")].map((details) => [
         details.dataset.section,
@@ -2041,8 +2044,8 @@ class DuhnergyCard extends HTMLElement {
         .flow-track-shadow { stroke: #020913; stroke-width: 10; opacity: .9; }
         .flow-track { stroke: var(--outline-bright); stroke-width: 6; opacity: .75; }
         .flow-track-center { fill: none; stroke: #0b1826; stroke-width: 2; stroke-dasharray: 2 7; }
-        .flow-live { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 4 12; filter: drop-shadow(0 0 3px currentColor); animation: feeder-flow var(--flow-speed, 5s) linear infinite; }
-        .flow-live.trunk { stroke-width: 5; stroke-dasharray: 6 11; }
+        .flow-live { --dash-period: 16; fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 4 12; filter: drop-shadow(0 0 3px currentColor); animation: feeder-flow var(--flow-speed, 5s) linear infinite; }
+        .flow-live.trunk { --dash-period: 17; stroke-width: 5; stroke-dasharray: 6 11; }
         .flow-particle { fill: currentColor; filter: drop-shadow(0 0 4px currentColor); pointer-events: none; }
         .flow-solar { color: var(--green); stroke: var(--green); }
         .flow-grid { color: var(--green); stroke: var(--green); }
@@ -2145,7 +2148,10 @@ class DuhnergyCard extends HTMLElement {
         @keyframes battery-pulse { 50% { opacity: .76; } }
         @keyframes ev-pulse { 50% { transform: scale(1.08); transform-origin: center; } }
         @keyframes cable-charge { to { stroke-dashoffset: -18; } }
-        @keyframes feeder-flow { to { stroke-dashoffset: -32; } }
+        @keyframes feeder-flow {
+          from { stroke-dashoffset: 0; }
+          to { stroke-dashoffset: calc(-1 * var(--dash-period)); }
+        }
 
         @container (max-width: 1050px) {
           .energy-topology { column-gap: 70px; }
@@ -2264,6 +2270,10 @@ class DuhnergyCard extends HTMLElement {
         </div>
       </ha-card>`;
 
+    if (stableFlowLayer) {
+      this.shadowRoot.querySelector(".flow-layer")?.replaceWith(stableFlowLayer);
+      this._restoreFlowAnimationState(stableFlowLayer, flowAnimationState);
+    }
     this._bindEvents(openSections);
     this._scheduleFlowDraw();
   }
@@ -2384,6 +2394,54 @@ class DuhnergyCard extends HTMLElement {
     this._flowFrame = requestAnimationFrame(() => this._drawFlows());
   }
 
+  _captureFlowAnimationState(layer) {
+    if (!layer) return null;
+    let svgTime = null;
+    try {
+      svgTime = Number(layer.getCurrentTime?.());
+    } catch {
+      svgTime = null;
+    }
+    const cssTimes = new Map();
+    layer.querySelectorAll("[data-flow-index]").forEach((group) => {
+      const animation = group
+        .querySelector(".flow-live")
+        ?.getAnimations?.()
+        .find((candidate) => candidate.animationName === "feeder-flow");
+      const currentTime = Number(animation?.currentTime);
+      if (Number.isFinite(currentTime)) cssTimes.set(group.dataset.flowIndex, currentTime);
+    });
+    return {
+      capturedAt: typeof performance !== "undefined" ? performance.now() : Date.now(),
+      cssTimes,
+      svgTime: Number.isFinite(svgTime) ? svgTime : null,
+    };
+  }
+
+  _restoreFlowAnimationState(layer, state) {
+    if (!layer || !state) return;
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const elapsedMilliseconds = Math.max(0, now - state.capturedAt);
+    if (state.svgTime != null) {
+      try {
+        layer.setCurrentTime?.(state.svgTime + elapsedMilliseconds / 1000);
+      } catch {
+        // Browsers without SVG timeline controls keep their native animation state.
+      }
+    }
+    requestAnimationFrame(() => {
+      layer.querySelectorAll("[data-flow-index]").forEach((group) => {
+        const savedTime = state.cssTimes.get(group.dataset.flowIndex);
+        if (!Number.isFinite(savedTime)) return;
+        const animation = group
+          .querySelector(".flow-live")
+          ?.getAnimations?.()
+          .find((candidate) => candidate.animationName === "feeder-flow");
+        if (animation) animation.currentTime = savedTime + elapsedMilliseconds;
+      });
+    });
+  }
+
   _anchor(container, selector, side, position) {
     const element = this.shadowRoot?.querySelector(selector);
     if (!element) return null;
@@ -2431,34 +2489,106 @@ class DuhnergyCard extends HTMLElement {
     if (getComputedStyle(layer).display === "none") return;
     layer.setAttribute("viewBox", `0 0 ${Math.round(container.width)} ${Math.round(container.height)}`);
 
-    const markup = this._flowModel
+    const descriptors = this._flowModel
       .map((flow, index) => {
         const start = this._anchor(container, ...flow.from);
         const end = this._anchor(container, ...flow.to);
-        if (!start || !end) return "";
+        if (!start || !end) return null;
         const [from, to] = flow.reversed ? [end, start] : [start, end];
         const path = this._curve(from, to, flow, index);
         const intensity = Math.max(0.35, Math.min(1, Number(flow.power || 0) / 5000));
-        const junction = flow.noJunction
-          ? ""
-          : `<circle class="flow-junction flow-${flow.tone}" cx="${from[0]}" cy="${
-              from[1]
-            }" r="${3 + intensity * 2}"></circle>`;
-        return `<path class="flow-track-shadow" d="${path}"></path>
-          <path class="flow-track${flow.trunk ? " trunk" : ""}" d="${path}"></path>
-          <path class="flow-track-center" d="${path}"></path>${junction}${
-          flow.active
-            ? `<path class="flow-live flow-${flow.tone}${flow.trunk ? " trunk" : ""}" style="--flow-speed:${
-                flow.speed || 5
-              }s;opacity:${0.55 + intensity * 0.45}" d="${path}"></path>
-              <circle class="flow-particle flow-${flow.tone}" r="${2.5 + intensity}">
-                <animateMotion dur="${flow.speed || 5}s" repeatCount="indefinite" path="${path}"></animateMotion>
-              </circle>`
-            : ""
-        }`;
+        return { flow, index, from, path, intensity, speed: flow.speed || 5 };
       })
-      .join("");
-    layer.innerHTML = markup;
+      .filter(Boolean);
+    const signature = descriptors
+      .map(
+        ({ flow, index }) =>
+          `${index}:${flow.tone}:${flow.active ? 1 : 0}:${flow.reversed ? 1 : 0}:${
+            flow.trunk ? 1 : 0
+          }:${flow.noJunction ? 1 : 0}`,
+      )
+      .join("|");
+
+    if (layer.dataset.flowSignature !== signature) {
+      layer.innerHTML = descriptors
+        .map(({ flow, index, from, path, intensity, speed }) => {
+          const junction = flow.noJunction
+            ? ""
+            : `<circle class="flow-junction flow-${flow.tone}" cx="${from[0]}" cy="${
+                from[1]
+              }" r="${3 + intensity * 2}"></circle>`;
+          const particles = flow.active
+            ? [0, 1, 2]
+                .map((particleIndex) => {
+                  const begin = -((speed * particleIndex) / 3);
+                  return `<circle class="flow-particle flow-${flow.tone}" r="${
+                    2.5 + intensity
+                  }" opacity="0">
+                    <animateMotion dur="${speed}s" begin="${begin}s" repeatCount="indefinite" path="${path}"></animateMotion>
+                    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.08;.92;1" dur="${speed}s" begin="${begin}s" repeatCount="indefinite"></animate>
+                  </circle>`;
+                })
+                .join("")
+            : "";
+          return `<g data-flow-index="${index}">
+            <path class="flow-track-shadow" d="${path}"></path>
+            <path class="flow-track${flow.trunk ? " trunk" : ""}" d="${path}"></path>
+            <path class="flow-track-center" d="${path}"></path>${junction}${
+              flow.active
+                ? `<path class="flow-live flow-${flow.tone}${
+                    flow.trunk ? " trunk" : ""
+                  }" data-speed="${speed}" style="--flow-speed:${speed}s;opacity:${
+                    0.55 + intensity * 0.45
+                  }" d="${path}"></path>${particles}`
+                : ""
+            }
+          </g>`;
+        })
+        .join("");
+      layer.dataset.flowSignature = signature;
+      return;
+    }
+
+    descriptors.forEach(({ flow, index, from, path, intensity, speed }) => {
+      const group = layer.querySelector(`[data-flow-index="${index}"]`);
+      if (!group) return;
+      group.querySelectorAll(".flow-track-shadow, .flow-track, .flow-track-center, .flow-live").forEach(
+        (element) => element.setAttribute("d", path),
+      );
+      const junction = group.querySelector(".flow-junction");
+      if (junction) {
+        junction.setAttribute("cx", from[0]);
+        junction.setAttribute("cy", from[1]);
+        junction.setAttribute("r", 3 + intensity * 2);
+      }
+      const live = group.querySelector(".flow-live");
+      if (live) {
+        live.style.opacity = 0.55 + intensity * 0.45;
+        const previousSpeed = Number(live.dataset.speed || speed);
+        if (Math.abs(previousSpeed - speed) > 0.01) {
+          const animation = live.getAnimations?.().find(
+            (candidate) => candidate.animationName === "feeder-flow",
+          );
+          const previousDuration = previousSpeed * 1000;
+          const currentTime = Number(animation?.currentTime);
+          const progress =
+            animation && Number.isFinite(currentTime) && previousDuration > 0
+              ? (((currentTime % previousDuration) + previousDuration) % previousDuration) /
+                previousDuration
+              : null;
+          live.style.setProperty("--flow-speed", `${speed}s`);
+          live.dataset.speed = speed;
+          if (animation && progress != null) {
+            animation.effect?.updateTiming({ duration: speed * 1000, iterations: Infinity });
+            animation.currentTime = progress * speed * 1000;
+          }
+        }
+      }
+      group.querySelectorAll(".flow-particle").forEach((particle) => {
+        particle.setAttribute("r", 2.5 + intensity);
+        particle.querySelector("animateMotion")?.setAttribute("path", path);
+      });
+    });
   }
 
   _scheduleRenderAfterInteraction() {
