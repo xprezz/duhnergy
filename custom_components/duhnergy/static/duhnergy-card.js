@@ -1122,7 +1122,6 @@ class DuhnergyCard extends HTMLElement {
         power: (strings[0].power || 0) + (strings[1].power || 0),
         speed: speed((strings[0].power || 0) + (strings[1].power || 0)),
         route: "straight",
-        noArrow: true,
         noJunction: true,
       },
       {
@@ -1133,7 +1132,6 @@ class DuhnergyCard extends HTMLElement {
         power: (strings[2].power || 0) + (strings[3].power || 0),
         speed: speed((strings[2].power || 0) + (strings[3].power || 0)),
         route: "straight",
-        noArrow: true,
         noJunction: true,
       },
       {
@@ -1145,7 +1143,6 @@ class DuhnergyCard extends HTMLElement {
         speed: speed(solar),
         route: "straight",
         trunk: true,
-        noArrow: true,
         noJunction: true,
       },
       {
@@ -2396,22 +2393,6 @@ class DuhnergyCard extends HTMLElement {
     if (getComputedStyle(layer).display === "none") return;
     layer.setAttribute("viewBox", `0 0 ${Math.round(container.width)} ${Math.round(container.height)}`);
 
-    const markerColours = {
-      solar: "#78d24b",
-      grid: "#78d24b",
-      sale: "#f5a14a",
-      battery: "#ab91ff",
-      ev: "#67d5ff",
-      "grid-source": "#4aaeff",
-      "solar-source": "#ffda4c",
-      "battery-source": "#78d24b",
-    };
-    const definitions = `<defs>${Object.entries(markerColours)
-      .map(
-        ([tone, colour]) =>
-          `<marker id="flow-arrow-${tone}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${colour}"></path></marker>`,
-      )
-      .join("")}</defs>`;
     const markup = this._flowModel
       .map((flow, index) => {
         const start = this._anchor(container, ...flow.from);
@@ -2429,9 +2410,7 @@ class DuhnergyCard extends HTMLElement {
           <path class="flow-track${flow.trunk ? " trunk" : ""}" d="${path}"></path>
           <path class="flow-track-center" d="${path}"></path>${junction}${
           flow.active
-            ? `<path class="flow-live flow-${flow.tone}${flow.trunk ? " trunk" : ""}" ${
-                flow.noArrow ? "" : `marker-end="url(#flow-arrow-${flow.tone})"`
-              } style="--flow-speed:${
+            ? `<path class="flow-live flow-${flow.tone}${flow.trunk ? " trunk" : ""}" style="--flow-speed:${
                 flow.speed || 1.2
               }s;opacity:${0.55 + intensity * 0.45}" d="${path}"></path>
               <circle class="flow-particle flow-${flow.tone}" r="${2.5 + intensity}">
@@ -2441,7 +2420,7 @@ class DuhnergyCard extends HTMLElement {
         }`;
       })
       .join("");
-    layer.innerHTML = definitions + markup;
+    layer.innerHTML = markup;
   }
 
   _scheduleRenderAfterInteraction() {
