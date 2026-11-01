@@ -15,7 +15,7 @@ For a first installation:
 4. Go to **Settings → Devices & services → Add integration**, search for **Duhnergy!**, and complete the form.
 5. Keep **Mode** set to **Shadow** while checking the mappings, forecast, calculated timeline, and simulator log.
 
-To update to v0.2.1, open Duhnergy! in HACS, choose **Update/download**, restart Home Assistant, then hard-refresh the dashboard browser once so the `?v=0.2.1` card resource is loaded.
+To update to v0.3.0, open Duhnergy! in HACS, choose **Update/download**, restart Home Assistant, then hard-refresh the dashboard browser once so the `?v=0.3.0` card resource is loaded.
 
 The setup form is prefilled with known entity IDs for the target installation. Every source, Solis control, sign convention, currency, and planning setting can be changed later under **Settings → Devices & services → Duhnergy! → Configure**. The Easee device ID is derived from the selected charger status entity's entity-registry device and is never hardcoded.
 
@@ -28,14 +28,42 @@ type: custom:duhnergy-card
 title: Duhnergy!
 ```
 
-The v0.2.1 card is optimised for iPad landscape and other widescreen dashboards. It collapses to a single-column layout on narrow screens and includes:
+The v0.3.0 card is optimised for iPad landscape and other widescreen dashboards. It collapses to a single-column layout on narrow screens and includes:
 
-- Live directional power flow among Solar, House, Battery, Grid, and EV.
-- One-to-four individually mapped solar surfaces, current weather, live production, today's forecast, and production so far today.
-- A dependency-free SVG 24-hour chart with solar area, buy/sell price lines, dual scales, forecast gaps, tooltips, and a current-time marker.
-- The calculated action timeline, persistent period stats, Shadow activity stream, guarded controls, and planning settings.
+- An original illustrated technical dashboard drawn entirely with local HTML, CSS, and SVG.
+- A live day/night sky using `sun.sun`, sunrise/current/sunset positioning, a locally calculated lunar phase, and animated Home Assistant weather conditions.
+- Four production-reactive Solis PV string illustrations, live/today production, a three-phase grid panel, and DKK/kWh buy/sell prices.
+- Animated electrical feeder cables among illustrated grid, inverter, house, battery, and EV modules. Direction follows the configured grid and battery sign conventions, while speed scales with live power.
+- A dependency-free unified SVG forecast with solar area, buy/sell lines, dual scales, day separators, current-time marker, and mouse/touch tooltip for the available forecast horizon.
+- The existing calculated action timeline, persistent period stats, Shadow activity stream, guarded controls, and planning settings in expandable secondary panels.
 - Native Home Assistant more-info dialogs for every displayed entity-backed metric and node, including keyboard activation with Enter or Space.
 - Range sliders for the primary smart optimisations, backed by the existing Duhnergy number entities.
+- Reduced-motion support and responsive layouts for landscape tablets, portrait tablets, and phones.
+
+Optional card-level entity overrides can be supplied in Lovelace YAML when an installation uses different direct Solis entity names:
+
+```yaml
+type: custom:duhnergy-card
+title: Duhnergy!
+weather_entity: weather.home
+sun_entity: sun.sun
+pv_total_entity: sensor.solis_total_pv_power
+pv_today_entity: sensor.solis_pv_today_energy_generation
+pv_entities:
+  - sensor.solis_pv_power_1
+  - sensor.solis_pv_power_2
+  - sensor.solis_pv_power_3
+  - sensor.solis_pv_power_4
+phase_entities:
+  - sensor.solis_meter_active_power_a
+  - sensor.solis_meter_active_power_b
+  - sensor.solis_meter_active_power_c
+battery_charged_today_entity: sensor.solis_today_battery_charge_energy
+battery_discharged_today_entity: sensor.solis_today_battery_discharge_energy
+house_today_entity: sensor.solis_household_load_today_energy
+```
+
+If `weather_entity` is omitted, the card uses the integration's mapped weather entity, then automatically selects the only `weather.*` entity when exactly one is available. Missing optional PV strings, phases, and daily totals render as unavailable without breaking the dashboard.
 
 ## Forecast sources and sensors
 
