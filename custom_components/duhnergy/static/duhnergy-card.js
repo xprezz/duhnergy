@@ -21,6 +21,24 @@ class DuhnergyCard extends HTMLElement {
       forecast_entity: "sensor.duhnergy_24_hour_forecast",
       stats_entity: "sensor.duhnergy_stats_summary",
       log_entity: "sensor.duhnergy_simulator_log",
+      weather_entity: "",
+      sun_entity: "sun.sun",
+      pv_entities: [
+        "sensor.solis_pv_power_1",
+        "sensor.solis_pv_power_2",
+        "sensor.solis_pv_power_3",
+        "sensor.solis_pv_power_4",
+      ],
+      pv_total_entity: "sensor.solis_total_pv_power",
+      pv_today_entity: "sensor.solis_pv_today_energy_generation",
+      phase_entities: [
+        "sensor.solis_meter_active_power_a",
+        "sensor.solis_meter_active_power_b",
+        "sensor.solis_meter_active_power_c",
+      ],
+      battery_charged_today_entity: "sensor.solis_today_battery_charge_energy",
+      battery_discharged_today_entity: "sensor.solis_today_battery_discharge_energy",
+      house_today_entity: "sensor.solis_household_load_today_energy",
       ...config,
     };
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
@@ -57,6 +75,28 @@ class DuhnergyCard extends HTMLElement {
 
   _unit(entityId, fallback = "") {
     return this._state(entityId)?.attributes?.unit_of_measurement || fallback;
+  }
+
+  _entityNumber(entityId, fallback = null) {
+    const state = this._state(entityId);
+    if (!state || ["unknown", "unavailable", ""].includes(state.state)) return fallback;
+    const value = Number(state.state);
+    if (!Number.isFinite(value)) return fallback;
+    const unit = String(state.attributes?.unit_of_measurement || "").toLowerCase();
+    if (unit === "kw") return value * 1000;
+    if (unit === "mw") return value * 1000000;
+    return value;
+  }
+
+  _energy(entityId, fallback = null) {
+    const state = this._state(entityId);
+    if (!state || ["unknown", "unavailable", ""].includes(state.state)) return fallback;
+    const value = Number(state.state);
+    if (!Number.isFinite(value)) return fallback;
+    const unit = String(state.attributes?.unit_of_measurement || "kWh").toLowerCase();
+    if (unit === "wh") return value / 1000;
+    if (unit === "mwh") return value * 1000;
+    return value;
   }
 
   _escape(value) {
@@ -688,6 +728,505 @@ class DuhnergyCard extends HTMLElement {
     return `<button class="command" data-button="button.duhnergy_${command}"><ha-icon icon="${icon}"></ha-icon><span>${this._escape(label)}</span></button>`;
   }
 
+  _weatherEntity(sourceEntities = {}) {
+    if (this.config.weather_entity && this._state(this.config.weather_entity)) {
+      return this.config.weather_entity;
+    }
+    if (sourceEntities.weather && this._state(sourceEntities.weather)) {
+      return sourceEntities.weather;
+    }
+    const weatherEntities = Object.keys(this._hass?.states || {}).filter((entityId) =>
+      entityId.startsWith("weather."),
+    );
+    return weatherEntities.length === 1 ? weatherEntities[0] : "";
+  }
+
+  _moonPhase(date = new Date()) {
+    const synodicMonth = 29.530588853;
+    const referenceNewMoon = Date.UTC(2000, 0, 6, 18, 14);
+    const age =
+      (((date.getTime() - referenceNewMoon) / 86400000) % synodicMonth + synodicMonth) %
+      synodicMonth;
+    const fraction = age / synodicMonth;
+    const names = [
+      "New moon",
+      "Waxing crescent",
+      "First quarter",
+      "Waxing gibbous",
+      "Full moon",
+      "Waning gibbous",
+      "Last quarter",
+      "Waning crescent",
+    ];
+    return {
+      age,
+      fraction,
+      illumination: (1 - Math.cos(fraction * Math.PI * 2)) / 2,
+      waxing: fraction < 0.5,
+      name: names[Math.round(fraction * 8) % 8],
+    };
+  }
+
+  _skyData() {
+    const now = new Date();
+    const sun = this._state(this.config.sun_entity);
+    const above = sun?.state === "above_horizon";
+    const nextRising = new Date(sun?.attributes?.next_rising || now.getTime() + 12 * 3600000);
+    const nextSetting = new Date(sun?.attributes?.next_setting || now.getTime() + 6 * 3600000);
+    let start;
+    let end;
+    if (above) {
+      start = new Date(nextRising.getTime() - 86400000);
+      end = nextSetting;
+    } else {
+      start = new Date(nextSetting.getTime() - 86400000);
+      end = nextRising;
+    }
+    if (!(start < now && now < end)) {
+      start = new Date(now);
+      start.setHours(above ? 6 : 18, 0, 0, 0);
+      end = new Date(start.getTime() + 12 * 3600000);
+    }
+    const progress = Math.min(1, Math.max(0, (now - start) / Math.max(1, end - start)));
+    return {
+      now,
+      above,
+      start,
+      end,
+      progress,
+      x: 14 + progress * 172,
+      y: 78 - Math.sin(progress * Math.PI) * 57,
+      moon: this._moonPhase(now),
+      elevation: Number(sun?.attributes?.elevation),
+    };
+  }
+
+  _weatherArtwork(condition) {
+    const normalized = String(condition || "clear").toLowerCase();
+    const cloudy = [
+      "cloudy",
+      "partlycloudy",
+      "rainy",
+      "pouring",
+      "snowy",
+      "snowy-rainy",
+      "hail",
+      "lightning",
+      "lightning-rainy",
+      "fog",
+    ].includes(normalized);
+    const rain = ["rainy", "pouring", "lightning-rainy", "snowy-rainy"].includes(normalized);
+    const snow = ["snowy", "snowy-rainy", "hail"].includes(normalized);
+    const lightning = ["lightning", "lightning-rainy"].includes(normalized);
+    const fog = normalized === "fog";
+    const wind = normalized.startsWith("windy");
+    return `<g class="weather-art weather-${this._escape(normalized)}">
+      ${
+        cloudy
+          ? `<g class="cloud cloud-a"><ellipse cx="27" cy="25" rx="13" ry="6"></ellipse><circle cx="22" cy="22" r="7"></circle><circle cx="31" cy="20" r="9"></circle></g>
+             <g class="cloud cloud-b"><ellipse cx="73" cy="34" rx="16" ry="7"></ellipse><circle cx="68" cy="30" r="8"></circle><circle cx="79" cy="29" r="10"></circle></g>`
+          : ""
+      }
+      ${
+        rain
+          ? `<g class="rain-drops"><path d="M21 34l-3 9M29 35l-3 9M67 44l-3 9M77 44l-3 9"></path></g>`
+          : ""
+      }
+      ${
+        snow
+          ? `<g class="snow-flakes"><text x="20" y="47">✦</text><text x="31" y="43">✦</text><text x="69" y="53">✦</text><text x="80" y="49">✦</text></g>`
+          : ""
+      }
+      ${lightning ? `<path class="lightning" d="M73 38l-7 12h6l-4 10 12-15h-6l5-7z"></path>` : ""}
+      ${
+        fog
+          ? `<g class="fog-lines"><path d="M12 42h35M20 49h42M51 42h36M42 56h38"></path></g>`
+          : ""
+      }
+      ${
+        wind
+          ? `<g class="wind-lines"><path d="M10 27h30c9 0 9-10 2-10M20 38h52c12 0 12 12 2 12M49 29h36"></path></g>`
+          : ""
+      }
+    </g>`;
+  }
+
+  _skyPanel(sourceEntities) {
+    const sky = this._skyData();
+    const weatherEntity = this._weatherEntity(sourceEntities);
+    const weather = this._state(weatherEntity);
+    const condition = weather?.state || (sky.above ? "sunny" : "clear-night");
+    const object = sky.above
+      ? `<g class="sun-object" transform="translate(${sky.x} ${sky.y})"><circle r="7"></circle><g class="sun-rays"><path d="M0-13v4M0 9v4M-13 0h4M9 0h4M-9-9l3 3M6 6l3 3M9-9L6-6M-6 6l-3 3"></path></g></g>`
+      : `<g class="moon-object" transform="translate(${sky.x} ${sky.y})">
+          <circle r="8" class="moon-disc"></circle>
+          <ellipse class="moon-shadow ${sky.moon.waxing ? "waxing" : "waning"}" cx="${
+            sky.moon.waxing ? -8 + sky.moon.illumination * 16 : 8 - sky.moon.illumination * 16
+          }" cy="0" rx="${Math.max(1, 8 * Math.abs(1 - sky.moon.illumination * 2))}" ry="8"></ellipse>
+        </g>`;
+    return `<section class="tech-panel sky-panel" data-entity="${this._escape(
+      weatherEntity || this.config.sun_entity,
+    )}" role="button" tabindex="0">
+      <svg viewBox="0 0 200 88" aria-label="${this._escape(
+        `${condition}, ${sky.above ? "sun" : sky.moon.name}`,
+      )}">
+        <defs><linearGradient id="skyGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${
+          sky.above ? "#2376a7" : "#08152c"
+        }"></stop><stop offset="1" stop-color="${sky.above ? "#68bde7" : "#19284a"}"></stop></linearGradient></defs>
+        <rect width="200" height="88" fill="url(#skyGradient)"></rect>
+        <path class="horizon-arc" d="M12 78Q100 5 188 78"></path>
+        <path class="horizon-ground" d="M0 78H200V88H0z"></path>
+        <g class="stars">${sky.above ? "" : `<circle cx="24" cy="16" r=".7"></circle><circle cx="72" cy="12" r=".5"></circle><circle cx="163" cy="18" r=".7"></circle><circle cx="122" cy="28" r=".5"></circle>`}</g>
+        ${object}<g transform="translate(50 0)">${this._weatherArtwork(condition)}</g>
+        <line class="position-line" x1="${sky.x}" y1="${sky.y + 9}" x2="${sky.x}" y2="78"></line>
+      </svg>
+      <div class="sky-labels"><span>${this._time(sky.start, { weekday: undefined })}</span><strong>${
+        sky.above ? "SUN" : this._escape(sky.moon.name.toUpperCase())
+      } · ${this._escape(this._label(condition))}</strong><span>${this._time(sky.end, {
+        weekday: undefined,
+      })}</span></div>
+    </section>`;
+  }
+
+  _panelIllustration(power, unavailable) {
+    const intensity = unavailable ? 0 : Math.min(1, Math.max(0.08, power / 1500));
+    return `<svg class="panel-art" viewBox="0 0 160 74" aria-hidden="true" style="--pv:${intensity}">
+      <defs><linearGradient id="cellGradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#29466d"></stop><stop offset="1" stop-color="#102846"></stop></linearGradient></defs>
+      <path class="panel-frame" d="M27 12h108l17 46H8z"></path>
+      <path class="panel-glass" d="M31 17h99l13 35H17z"></path>
+      <g class="panel-grid"><path d="M53 17L41 52M78 17L71 52M103 17L101 52M24 28h113M20 40h121"></path></g>
+      <path class="panel-stand" d="M65 58l-7 10M105 58l8 10M45 68h82"></path>
+    </svg>`;
+  }
+
+  _deviceArt(kind, soc = 0) {
+    const art = {
+      grid: `<svg viewBox="0 0 100 100"><g class="pylon"><path d="M50 8L23 88M50 8l27 80M31 62h38M36 45h28M41 28h18M18 88h64M29 62l42 26M71 62L29 88M36 45l28 17M64 45L36 62"></path><path class="grid-spark" d="M13 31h23M64 31h23M9 50h27M64 50h27"></path></g></svg>`,
+      inverter: `<svg viewBox="0 0 120 90"><rect class="machine" x="13" y="13" width="94" height="64" rx="8"></rect><rect class="screen" x="24" y="28" width="50" height="31" rx="3"></rect><path class="wave" d="M29 46c7 0 7-13 14-13s7 25 14 25 7-18 14-18"></path><circle class="led" cx="87" cy="34" r="4"></circle><path d="M82 52h14M82 60h14"></path></svg>`,
+      house: `<svg viewBox="0 0 120 100"><path class="house-roof" d="M12 49L60 10l48 39-9 10-39-31-39 31z"></path><path class="house-body" d="M26 51v38h68V51L60 25z"></path><rect x="39" y="62" width="15" height="27"></rect><g class="house-window"><rect x="67" y="58" width="18" height="19"></rect><path d="M76 58v19M67 67h18"></path></g><path class="grass" d="M18 89h84"></path></svg>`,
+      battery: `<svg viewBox="0 0 140 80"><rect class="battery-case" x="8" y="14" width="119" height="54" rx="8"></rect><path class="battery-tip" d="M127 30h8v22h-8"></path><rect class="battery-fill" x="15" y="21" width="${Math.max(
+        0,
+        Math.min(105, soc * 1.05),
+      )}" height="40" rx="4"></rect><path class="battery-bolt" d="M76 23L58 46h15l-7 18 24-28H75z"></path></svg>`,
+      ev: `<svg viewBox="0 0 150 90"><path class="car" d="M13 58l10-25h67l13 25v19H13z"></path><path class="car-window" d="M32 38h48l10 18H25z"></path><circle class="wheel" cx="35" cy="77" r="8"></circle><circle class="wheel" cx="84" cy="77" r="8"></circle><rect class="charger" x="113" y="12" width="25" height="50" rx="5"></rect><path class="charge-bolt" d="M128 20l-9 14h7l-5 12 13-16h-7z"></path><path class="cable" d="M126 62c0 18-12 18-19 8"></path></svg>`,
+    };
+    return art[kind] || "";
+  }
+
+  _metricValue(value, digits = 0, unit = "W") {
+    if (value == null || !Number.isFinite(Number(value))) return `<b class="unavailable">UNAVAILABLE</b>`;
+    return `<strong>${Number(value).toLocaleString(undefined, {
+      maximumFractionDigits: digits,
+      minimumFractionDigits: digits,
+    })} <small>${unit}</small></strong>`;
+  }
+
+  _unifiedForecast(attributes) {
+    const timestamps = Array.isArray(attributes?.timestamps) ? attributes.timestamps : [];
+    const solar = Array.isArray(attributes?.solar_kw) ? attributes.solar_kw : [];
+    const buy = Array.isArray(attributes?.buy_price) ? attributes.buy_price : [];
+    const sell = Array.isArray(attributes?.sell_price) ? attributes.sell_price : [];
+    if (!timestamps.length) return this._emptyChart();
+    const width = 1200;
+    const height = 285;
+    const left = 66;
+    const right = 1142;
+    const top = 24;
+    const bottom = 226;
+    const x = (index) => left + (index / Math.max(1, timestamps.length - 1)) * (right - left);
+    const prices = [...buy, ...sell].filter((value) => Number.isFinite(Number(value))).map(Number);
+    const solarValues = solar.filter((value) => Number.isFinite(Number(value))).map(Number);
+    const minPrice = Math.min(0, ...prices);
+    const maxPrice = Math.max(1, ...prices);
+    const maxSolar = Math.max(1, ...solarValues);
+    const priceY = (value) =>
+      bottom - ((Number(value) - minPrice) / Math.max(0.1, maxPrice - minPrice)) * (bottom - top);
+    const solarY = (value) => bottom - (Number(value) / maxSolar) * (bottom - top);
+    const line = (values, yScale, className) =>
+      this._segments(values, x, yScale)
+        .map(
+          (segment) =>
+            `<path class="${className}" d="${segment
+              .map((point, index) => `${index ? "L" : "M"}${point[0].toFixed(1)},${point[1].toFixed(1)}`)
+              .join(" ")}"></path>`,
+        )
+        .join("");
+    const solarAreas = this._segments(solar, x, solarY)
+      .map(
+        (segment) =>
+          `<path class="forecast-solar-area" d="M${segment[0][0]},${bottom} ${segment
+            .map((point, index) => `${index ? "L" : "M"}${point[0].toFixed(1)},${point[1].toFixed(1)}`)
+            .join(" ")} L${segment.at(-1)[0]},${bottom}Z"></path>`,
+      )
+      .join("");
+    const dayLines = timestamps
+      .map((timestamp, index) => {
+        const date = new Date(timestamp);
+        const previous = index ? new Date(timestamps[index - 1]) : null;
+        if (index && date.toDateString() === previous?.toDateString()) return "";
+        return `<line class="day-line" x1="${x(index)}" y1="${top}" x2="${x(index)}" y2="${bottom + 26}"></line>
+          <text class="day-label" x="${x(index) + 7}" y="${bottom + 43}">${this._escape(
+            date.toLocaleDateString([], { weekday: "short", day: "numeric" }),
+          )}</text>`;
+      })
+      .join("");
+    const horizontalGrid = [0, 0.25, 0.5, 0.75, 1]
+      .map((fraction) => {
+        const y = bottom - fraction * (bottom - top);
+        return `<line class="chart-grid" x1="${left}" y1="${y}" x2="${right}" y2="${y}"></line>
+          <text class="price-axis" x="${left - 9}" y="${y + 4}" text-anchor="end">${(
+            minPrice +
+            (maxPrice - minPrice) * fraction
+          ).toFixed(2)}</text>
+          <text class="solar-axis" x="${right + 10}" y="${y + 4}">${(maxSolar * fraction).toFixed(
+            1,
+          )}</text>`;
+      })
+      .join("");
+    const now = Date.now();
+    const first = new Date(timestamps[0]).getTime();
+    const last = new Date(timestamps.at(-1)).getTime();
+    const nowX =
+      now >= first && now <= last ? left + ((now - first) / Math.max(1, last - first)) * (right - left) : null;
+    const hitWidth = (right - left) / Math.max(1, timestamps.length);
+    const hitAreas = timestamps
+      .map(
+        (timestamp, index) =>
+          `<rect class="chart-hit" x="${x(index) - hitWidth / 2}" y="${top}" width="${hitWidth}" height="${
+            bottom - top
+          }" data-chart-index="${index}" data-time="${this._escape(
+            this._time(timestamp),
+          )}" data-buy="${this._format(buy[index], 2)}" data-sell="${this._format(
+            sell[index],
+            2,
+          )}" data-solar="${this._format(solar[index], 2)}"></rect>`,
+      )
+      .join("");
+    return `<div class="forecast-wrap">
+      <svg class="forecast-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Solar and DKK price forecast">
+        <defs><linearGradient id="forecastSolarFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd84d" stop-opacity=".72"></stop><stop offset="1" stop-color="#ffd84d" stop-opacity=".05"></stop></linearGradient></defs>
+        ${horizontalGrid}${dayLines}${solarAreas}${line(solar, solarY, "forecast-solar-line")}${line(
+          buy,
+          priceY,
+          "forecast-buy-line",
+        )}${line(sell, priceY, "forecast-sell-line")}
+        ${
+          nowX == null
+            ? ""
+            : `<line class="now-line" x1="${nowX}" y1="${top}" x2="${nowX}" y2="${bottom}"></line><text class="now-label" x="${nowX + 5}" y="${top + 10}">NOW</text>`
+        }
+        <text class="axis-title" x="8" y="18">DKK/kWh</text><text class="axis-title solar-title" x="1144" y="18">kW</text>
+        ${hitAreas}
+      </svg>
+      <div class="chart-tooltip" hidden></div>
+    </div>`;
+  }
+
+  _illustratedOverview(planAttributes, forecastAttributes, statsAttributes) {
+    const sources = planAttributes?.source_entities || {};
+    const conventions = planAttributes?.conventions || {};
+    const solar = this._entityNumber(this.config.pv_total_entity, this._number("sensor.duhnergy_solar_power"));
+    const house = this._number("sensor.duhnergy_house_power");
+    const battery = this._number("sensor.duhnergy_battery_power");
+    const grid = this._number("sensor.duhnergy_grid_net_power");
+    const ev = this._number("sensor.duhnergy_ev_power");
+    const soc = this._number("sensor.duhnergy_battery_state_of_charge");
+    const batteryCharging =
+      conventions.battery_power_positive === "discharge" ? battery < 0 : battery > 0;
+    const gridImporting =
+      conventions.grid_power_positive === "export" ? grid < 0 : grid > 0;
+    const today = statsAttributes?.periods?.today || {};
+    const value = (key) => {
+      const number = Number(today[key]);
+      return Number.isFinite(number) ? Math.max(0, number) : 0;
+    };
+    const pvToday =
+      this._energy(this.config.pv_today_entity, null) ??
+      Number(planAttributes?.solar_today_energy_kwh) ??
+      value("solar_production_kwh");
+    const houseToday = this._energy(this.config.house_today_entity, null) ?? value("household_consumption_kwh");
+    const batteryCharged =
+      this._energy(this.config.battery_charged_today_entity, null) ?? value("battery_charged_kwh");
+    const batteryDischarged =
+      this._energy(this.config.battery_discharged_today_entity, null) ?? value("battery_discharged_kwh");
+    const evToday = value("ev_charged_kwh");
+    const buyEntity = sources.import_price || "sensor.duhnergy_current_buy_price";
+    const sellEntity = sources.sale_price || "sensor.duhnergy_current_sell_price";
+    const buy = forecastAttributes?.current_buy_price;
+    const sell = forecastAttributes?.current_sell_price;
+    const phaseEntities = Array.isArray(this.config.phase_entities) ? this.config.phase_entities : [];
+    const phases = phaseEntities.slice(0, 3).map((entityId, index) => ({
+      entityId,
+      name: `L${index + 1}`,
+      value: this._entityNumber(entityId, null),
+    }));
+    const pvEntities = Array.isArray(this.config.pv_entities) ? this.config.pv_entities : [];
+    const strings = [0, 1, 2, 3].map((index) => {
+      const entityId = pvEntities[index] || sources[`solar_surface_${index + 1}`];
+      return { entityId, power: this._entityNumber(entityId, null), index };
+    });
+    const maximumFlow = Math.max(200, solar, house, Math.abs(grid), Math.abs(battery), ev);
+    const speed = (power) => Math.max(0.45, 2.4 - (Math.abs(power) / maximumFlow) * 1.8);
+    this._flowModel = [
+      ...strings.map((item, index) => ({
+        from: [`.pv-string:nth-child(${index + 1})`, "bottom", 0.5],
+        to: [".inverter-module", "top", (index + 1) / 5],
+        tone: "solar",
+        active: (item.power || 0) > 20,
+        power: item.power || 0,
+        speed: speed(item.power || 0),
+      })),
+      {
+        from: [".grid-module", "right", 0.5],
+        to: [".inverter-module", "left", 0.35],
+        tone: gridImporting ? "grid" : "sale",
+        active: Math.abs(grid) > 20,
+        reversed: !gridImporting,
+        power: Math.abs(grid),
+        speed: speed(grid),
+      },
+      {
+        from: [".battery-module", "right", 0.5],
+        to: [".inverter-module", "left", 0.76],
+        tone: "battery",
+        active: Math.abs(battery) > 20,
+        reversed: batteryCharging,
+        power: Math.abs(battery),
+        speed: speed(battery),
+      },
+      {
+        from: [".inverter-module", "right", 0.35],
+        to: [".house-module", "left", 0.5],
+        tone: "load",
+        active: house > 20,
+        power: house,
+        speed: speed(house),
+      },
+      {
+        from: [".inverter-module", "right", 0.75],
+        to: [".ev-module", "left", 0.5],
+        tone: "ev",
+        active: ev > 20,
+        power: ev,
+        speed: speed(ev),
+      },
+    ];
+    const systemStatus = this._value(this.config.status_entity, "Loading");
+    const selfSufficiency =
+      houseToday > 0 ? Math.max(0, Math.min(100, (1 - value("grid_import_kwh") / houseToday) * 100)) : null;
+    return `<div class="technical-board">
+      <div class="top-row">
+        ${this._skyPanel(sources)}
+        <section class="tech-panel pv-summary" data-entity="${this._escape(
+          this.config.pv_today_entity,
+        )}" role="button" tabindex="0">
+          <span>PV PRODUCTION TODAY</span>
+          <strong>${this._format(pvToday, 1)} <small>kWh</small></strong>
+          <em>CURRENT ACTIVE</em>
+          <b>${Math.round(solar).toLocaleString()} W</b>
+        </section>
+      </div>
+      <div class="pv-strings">
+        ${strings
+          .map(
+            ({ entityId, power, index }) => `<section class="tech-panel pv-string ${
+              power == null ? "is-unavailable" : ""
+            }" data-entity="${this._escape(entityId || "")}" role="button" tabindex="0" style="--pv-level:${
+              power == null ? 0 : Math.min(1, power / 1500)
+            }">
+              <h3>PANEL ${index + 1}</h3>${this._panelIllustration(power || 0, power == null)}
+              <div><span>${power == null ? "OFFLINE" : power > 20 ? "ACTIVE" : "IDLE"}</span>${this._metricValue(
+                power,
+                0,
+                "W",
+              )}</div>
+            </section>`,
+          )
+          .join("")}
+      </div>
+      <div class="energy-topology topology">
+        <svg class="flow-layer" aria-hidden="true" focusable="false"></svg>
+        <section class="tech-panel device-module grid-module" data-entity="sensor.duhnergy_grid_net_power" role="button" tabindex="0">
+          <div class="device-art">${this._deviceArt("grid")}</div><div class="device-copy"><h3>GRID</h3><span class="${
+            gridImporting ? "cyan" : "orange"
+          }">${Math.abs(grid) < 20 ? "BALANCED" : gridImporting ? "BUYING" : "SELLING"}</span>${this._metricValue(
+            Math.abs(grid),
+            0,
+            "W",
+          )}</div>
+        </section>
+        <section class="tech-panel device-module inverter-module" data-entity="${this._escape(
+          this.config.pv_total_entity,
+        )}" role="button" tabindex="0">
+          <h3>INVERTER</h3><div class="device-art">${this._deviceArt("inverter")}</div><span>ACTIVE PRODUCTION</span>${this._metricValue(
+            solar,
+            0,
+            "W",
+          )}
+        </section>
+        <section class="tech-panel device-module house-module" data-entity="sensor.duhnergy_house_power" role="button" tabindex="0">
+          <div class="device-art">${this._deviceArt("house")}</div><div class="device-copy"><h3>HOUSE</h3><span>ACTIVE USAGE</span>${this._metricValue(
+            house,
+            0,
+            "W",
+          )}<em>TODAY ${this._format(houseToday, 1)} kWh</em></div>
+        </section>
+        <section class="tech-panel phase-module">
+          <div class="phase-values">${phases
+            .map(
+              (phase) => `<div data-entity="${this._escape(phase.entityId)}" role="button" tabindex="0"><span>${
+                phase.name
+              }</span>${this._metricValue(phase.value, 0, "W")}</div>`,
+            )
+            .join("")}</div>
+          <div class="price-values">
+            <div data-entity="${this._escape(buyEntity)}" role="button" tabindex="0"><span>BUY PRICE</span><strong>${this._format(
+              buy,
+              2,
+            )} <small>DKK/kWh</small></strong></div>
+            <div class="sell" data-entity="${this._escape(sellEntity)}" role="button" tabindex="0"><span>SELL PRICE</span><strong>${this._format(
+              sell,
+              2,
+            )} <small>DKK/kWh</small></strong></div>
+          </div>
+        </section>
+        <section class="tech-panel device-module battery-module" data-entity="sensor.duhnergy_battery_state_of_charge" role="button" tabindex="0">
+          <h3>BATTERY</h3><div class="battery-row"><div class="device-art">${this._deviceArt(
+            "battery",
+            soc,
+          )}</div><div><span>${Math.abs(battery) < 20 ? "IDLE" : batteryCharging ? "CHARGING" : "DISCHARGING"}</span>${this._metricValue(
+            Math.abs(battery),
+            0,
+            "W",
+          )}<em>SOC ${this._format(soc, 0)}%</em></div></div>
+          <div class="battery-totals"><span>CHARGED TODAY <b>${this._format(
+            batteryCharged,
+            1,
+          )} kWh</b></span><span>DISCHARGED TODAY <b>${this._format(
+            batteryDischarged,
+            1,
+          )} kWh</b></span></div>
+        </section>
+        <section class="tech-panel device-module ev-module" data-entity="sensor.duhnergy_ev_power" role="button" tabindex="0">
+          <div class="device-art">${this._deviceArt("ev")}</div><div class="device-copy"><h3>EV CHARGER</h3><span>${
+            ev > 20 ? "ACTIVE" : "IDLE"
+          }</span>${this._metricValue(ev, 0, "W")}<em>TODAY ${this._format(evToday, 1)} kWh</em></div>
+        </section>
+      </div>
+      <section class="tech-panel forecast-panel">
+        <div class="forecast-heading"><h3>PRICE &amp; SOLAR FORECAST</h3><div class="forecast-legend"><span class="buy-key">BUY PRICE</span><span class="sell-key">SELL PRICE</span><span class="solar-key">SOLAR FORECAST</span></div></div>
+        ${this._unifiedForecast(forecastAttributes)}
+      </section>
+      <div class="status-strip">
+        <span>SYSTEM STATUS <b>${this._escape(this._label(systemStatus))}</b></span>
+        <span>SELF SUFFICIENCY <b>${selfSufficiency == null ? "—" : `${selfSufficiency.toFixed(0)}%`}</b></span>
+        <span>UPDATED <b>${this._time(planAttributes?.generated_at || new Date(), {
+          weekday: undefined,
+        })}</b></span>
+      </div>
+    </div>`;
+  }
+
   _render() {
     if (!this.shadowRoot || !this.config || !this._hass) return;
     const openSections = new Map(
@@ -1189,6 +1728,400 @@ class DuhnergyCard extends HTMLElement {
     this._scheduleFlowDraw();
   }
 
+  _render() {
+    if (!this.shadowRoot || !this.config || !this._hass) return;
+    const openSections = new Map(
+      [...this.shadowRoot.querySelectorAll("details[data-section]")].map((details) => [
+        details.dataset.section,
+        details.open,
+      ]),
+    );
+    const status = this._value(this.config.status_entity, "Loading");
+    const reason = this._value(this.config.reason_entity, "Waiting for the first calculation");
+    const mode = this._value("select.duhnergy_mode", "shadow");
+    const planAttributes = this._state(this.config.plan_entity)?.attributes || {};
+    const forecastAttributes = this._state(this.config.forecast_entity)?.attributes || {};
+    const statsAttributes = this._state(this.config.stats_entity)?.attributes || {};
+    const timeline = Array.isArray(planAttributes.timeline) ? planAttributes.timeline : [];
+    const logEntries = this._state(this.config.log_entity)?.attributes?.entries || [];
+
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host {
+          container-type: inline-size;
+          display: block;
+          --navy: #08192b;
+          --navy-2: #0d2239;
+          --navy-3: #132c47;
+          --outline: #2c4764;
+          --outline-bright: #476784;
+          --text: #f4f7fb;
+          --muted: #a5b4c5;
+          --green: #78d24b;
+          --cyan: #67d5ff;
+          --orange: #f5a14a;
+          --yellow: #ffda4c;
+          --violet: #ab91ff;
+          color: var(--text);
+          font-family: "Arial Narrow", "Roboto Condensed", "Segoe UI", sans-serif;
+          font-variant-numeric: tabular-nums;
+        }
+        * { box-sizing: border-box; }
+        ha-card { overflow: hidden; border: 1px solid #182f49; border-radius: var(--ha-card-border-radius, 16px); background: var(--navy); color: var(--text); }
+        button, input, select { font: inherit; }
+        button { color: inherit; }
+        [data-entity] { cursor: pointer; }
+        [data-entity]:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible {
+          outline: 3px solid var(--cyan);
+          outline-offset: 2px;
+        }
+        .dashboard { display: grid; gap: 12px; padding: 14px; background:
+          radial-gradient(circle at 16% 2%, rgba(67, 133, 184, .13), transparent 24%),
+          linear-gradient(180deg, #071626, #091b2e 65%, #071626); }
+        .command-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 12px; border: 2px solid var(--outline); background: #0a1d31; }
+        .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; color: var(--yellow); border: 2px solid var(--outline-bright); background: #102944; }
+        .brand-mark ha-icon { --mdc-icon-size: 23px; }
+        .brand h2 { margin: 0; color: var(--yellow); font-size: clamp(20px, 2vw, 29px); line-height: 1; letter-spacing: 1px; text-transform: uppercase; }
+        .brand p { margin: 3px 0 0; overflow: hidden; color: var(--muted); font: 700 11px/1.2 "Segoe UI", sans-serif; letter-spacing: .7px; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+        .command-status { display: flex; align-items: center; gap: 8px; }
+        .mode-control, .status-chip { min-height: 38px; padding: 5px 9px; border: 1px solid var(--outline); background: #071727; }
+        .mode-control label, .status-chip span { display: block; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; }
+        .mode-control select { min-width: 84px; padding: 0; border: 0; color: var(--cyan); background: transparent; font-weight: 900; text-transform: uppercase; }
+        .mode-control option { color: var(--text); background: var(--navy-2); }
+        .status-chip b { display: block; max-width: 240px; overflow: hidden; color: var(--green); font-size: 12px; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+
+        .technical-board { display: grid; gap: 10px; min-width: 0; }
+        .tech-panel { position: relative; min-width: 0; overflow: hidden; border: 2px solid var(--outline); background: linear-gradient(180deg, rgba(16, 43, 70, .98), rgba(8, 26, 44, .98)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.018); }
+        .tech-panel:before, .tech-panel:after { content: ""; position: absolute; width: 9px; height: 9px; pointer-events: none; }
+        .tech-panel:before { left: -2px; top: -2px; border-left: 3px solid var(--outline-bright); border-top: 3px solid var(--outline-bright); }
+        .tech-panel:after { right: -2px; bottom: -2px; border-right: 3px solid var(--outline-bright); border-bottom: 3px solid var(--outline-bright); }
+        .top-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(310px, 1.18fr); gap: 10px; }
+        .sky-panel { min-height: 145px; background: #0c2943; }
+        .sky-panel svg { display: block; width: 100%; height: 121px; }
+        .horizon-arc { fill: none; stroke: #e5e8ad; stroke-width: 1.2; stroke-dasharray: 2 2; }
+        .horizon-ground { fill: #142942; opacity: .94; }
+        .position-line { stroke: #e5e8ad; stroke-width: 1; stroke-dasharray: 2 2; }
+        .stars circle { fill: #d9e8ff; animation: twinkle 2s ease-in-out infinite alternate; }
+        .sun-object circle { fill: var(--yellow); stroke: #ffb931; stroke-width: 1.5; filter: drop-shadow(0 0 7px #ffe663); animation: sun-pulse 2s ease-in-out infinite; }
+        .sun-rays path { fill: none; stroke: var(--yellow); stroke-width: 1.8; stroke-linecap: round; animation: ray-spin 12s linear infinite; }
+        .moon-disc { fill: #f1edcf; filter: drop-shadow(0 0 7px rgba(231,237,255,.65)); }
+        .moon-shadow { fill: #172743; opacity: .93; }
+        .sky-labels { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; height: 24px; padding: 0 9px; color: #aebbd0; background: #122944; font-weight: 900; }
+        .sky-labels span { font-size: 12px; }
+        .sky-labels strong { overflow: hidden; color: #fff; font-size: 11px; letter-spacing: .5px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+        .weather-art { fill: #eaf4fb; stroke: #d9eaf4; stroke-width: .5; }
+        .cloud { animation: cloud-drift 8s ease-in-out infinite alternate; opacity: .92; }
+        .cloud-b { animation-delay: -4s; }
+        .rain-drops path { fill: none; stroke: #6ed8ff; stroke-width: 1.2; stroke-linecap: round; stroke-dasharray: 3 3; animation: rain-fall .8s linear infinite; }
+        .snow-flakes { fill: #fff; stroke: none; font-size: 6px; animation: snow-fall 2.4s linear infinite; }
+        .lightning { fill: #ffe76b; stroke: #fff4a4; animation: lightning-flash 2.8s steps(1) infinite; }
+        .fog-lines path, .wind-lines path { fill: none; stroke: #d9eaf4; stroke-width: 1.3; stroke-linecap: round; }
+        .fog-lines { animation: fog-shift 5s ease-in-out infinite alternate; opacity: .72; }
+        .wind-lines { animation: wind-shift 2.2s linear infinite; }
+        .pv-summary { display: flex; flex-direction: column; justify-content: center; min-height: 145px; padding: 18px 25px; }
+        .pv-summary span { color: var(--green); font-size: clamp(18px, 2.2vw, 30px); font-weight: 950; letter-spacing: 1px; }
+        .pv-summary > strong { color: var(--green); font-size: clamp(38px, 5vw, 62px); line-height: 1; }
+        .pv-summary small { font-size: .58em; }
+        .pv-summary em { margin-top: 7px; color: #fff; font-size: 15px; font-style: normal; font-weight: 900; letter-spacing: .7px; }
+        .pv-summary b { font-size: clamp(25px, 3vw, 38px); line-height: 1; }
+
+        .pv-strings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+        .pv-string { display: flex; flex-direction: column; min-height: 155px; padding: 8px 10px 10px; }
+        .pv-string h3, .device-module h3, .forecast-heading h3 { margin: 0; font-size: clamp(16px, 1.8vw, 25px); font-weight: 950; letter-spacing: .8px; text-align: center; }
+        .pv-string h3 { color: var(--yellow); }
+        .panel-art { width: 100%; height: 92px; filter: drop-shadow(0 0 calc(2px + var(--pv-level) * 9px) rgba(255,218,76,calc(.08 + var(--pv-level) * .45))); }
+        .panel-frame { fill: #9aa9b7; stroke: #d9e3e9; stroke-width: 2; }
+        .panel-glass { fill: url(#cellGradient); stroke: #7d91ab; stroke-width: 1; }
+        .panel-grid path { fill: none; stroke: #7088a8; stroke-width: 1; }
+        .panel-stand { fill: none; stroke: #8392a0; stroke-width: 3; }
+        .pv-string > div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+        .pv-string span, .device-module span, .phase-module span { color: #fff; font-size: 12px; font-weight: 900; letter-spacing: .6px; }
+        .pv-string strong { color: var(--green); font-size: clamp(20px, 2.2vw, 30px); }
+        .pv-string small, .device-module small, .phase-module small { color: inherit; font-size: .55em; }
+        .is-unavailable { opacity: .6; filter: grayscale(.6); }
+        .unavailable { color: var(--muted) !important; font-size: 12px !important; letter-spacing: .5px; }
+
+        .energy-topology { position: relative; display: grid; grid-template-columns: minmax(220px, .95fr) minmax(245px, 1.05fr) minmax(220px, .95fr); grid-template-areas:
+          "grid inverter house"
+          "phase battery ev"; gap: 48px 80px; min-height: 390px; padding: 20px 0; }
+        .flow-layer { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+        .device-module, .phase-module { z-index: 1; min-height: 156px; padding: 12px; }
+        .grid-module { grid-area: grid; }
+        .inverter-module { grid-area: inverter; text-align: center; }
+        .house-module { grid-area: house; }
+        .phase-module { grid-area: phase; }
+        .battery-module { grid-area: battery; }
+        .ev-module { grid-area: ev; }
+        .device-module { display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .inverter-module, .battery-module { flex-direction: column; }
+        .device-art { flex: 0 1 132px; min-width: 88px; color: #d7e1e9; }
+        .device-art svg { display: block; width: 100%; max-height: 98px; overflow: visible; }
+        .device-copy { min-width: 0; }
+        .device-copy h3 { text-align: left; }
+        .device-module strong { display: block; color: var(--cyan); font-size: clamp(22px, 2.35vw, 34px); line-height: 1.02; }
+        .device-module em { display: block; margin-top: 5px; color: #fff; font-size: 12px; font-style: normal; font-weight: 900; }
+        .device-module .orange, .price-values .sell strong { color: var(--orange); }
+        .device-module .cyan { color: var(--cyan); }
+        .pylon path { fill: none; stroke: #a5b5c7; stroke-width: 4; }
+        .pylon .grid-spark { stroke: var(--green); stroke-width: 2.5; stroke-dasharray: 4 5; animation: grid-live 1.4s linear infinite; }
+        .machine { fill: #85929e; stroke: #d4dde4; stroke-width: 3; }
+        .screen { fill: #163f50; stroke: #0a121c; stroke-width: 3; }
+        .wave { fill: none; stroke: #71ddf8; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 10 5; animation: wave-run 1.1s linear infinite; }
+        .led { fill: var(--yellow); animation: led-blink 1.2s steps(1) infinite; }
+        .house-roof { fill: #8898aa; stroke: #060b12; stroke-width: 4; }
+        .house-body { fill: #b8c5d0; stroke: #172333; stroke-width: 3; }
+        .house-window rect { fill: var(--yellow); stroke: #5b4c19; stroke-width: 2; animation: house-light 4s ease-in-out infinite; }
+        .house-window path { stroke: #5b4c19; stroke-width: 2; }
+        .grass { stroke: var(--green); stroke-width: 7; }
+        .battery-row { display: grid; grid-template-columns: minmax(120px, 1fr) auto; align-items: center; gap: 8px; width: 100%; }
+        .battery-case { fill: #6e7b88; stroke: #cbd4dc; stroke-width: 4; }
+        .battery-tip { fill: #8b99a5; }
+        .battery-fill { fill: var(--green); filter: drop-shadow(0 0 6px rgba(120,210,75,.6)); animation: battery-pulse 2s ease-in-out infinite; }
+        .battery-bolt { fill: #b6ee62; }
+        .battery-totals { display: grid; grid-template-columns: 1fr 1fr; width: 100%; padding-top: 8px; border-top: 1px solid var(--outline); }
+        .battery-totals span { padding: 0 7px; color: var(--green); font-size: 10px; }
+        .battery-totals span + span { border-left: 1px solid var(--outline); color: #fff; }
+        .battery-totals b { display: block; font-size: 15px; }
+        .car { fill: #7bd7ff; stroke: #071421; stroke-width: 4; }
+        .car-window { fill: #173b57; stroke: #071421; stroke-width: 3; }
+        .wheel { fill: #071421; stroke: #8fa3b7; stroke-width: 3; }
+        .charger { fill: #a7dff4; stroke: #071421; stroke-width: 4; }
+        .charge-bolt { fill: #167aa7; animation: ev-pulse 1.2s ease-in-out infinite; }
+        .cable { fill: none; stroke: #62cbf2; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 5 4; animation: cable-charge 1s linear infinite; }
+        .phase-module { display: grid; grid-template-rows: 1fr 1fr; padding: 0; }
+        .phase-values, .price-values { display: grid; grid-template-columns: repeat(3, 1fr); }
+        .phase-values > div, .price-values > div { display: grid; place-items: center; min-width: 0; padding: 9px 5px; }
+        .phase-values > div + div, .price-values > div + div { border-left: 1px solid var(--outline); }
+        .phase-values strong { color: #a7dc80; font-size: clamp(17px, 1.8vw, 25px); }
+        .price-values { grid-template-columns: 1fr 1fr; border-top: 1px solid var(--outline); }
+        .price-values strong { color: var(--green); font-size: clamp(17px, 1.8vw, 25px); text-align: center; }
+
+        .flow-track-shadow, .flow-track { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+        .flow-track-shadow { stroke: #020913; stroke-width: 10; opacity: .9; }
+        .flow-track { stroke: var(--outline-bright); stroke-width: 6; opacity: .75; }
+        .flow-track-center { fill: none; stroke: #0b1826; stroke-width: 2; stroke-dasharray: 2 7; }
+        .flow-live { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 4 12; filter: drop-shadow(0 0 3px currentColor); animation: feeder-flow var(--flow-speed, 1.2s) linear infinite; }
+        .flow-solar { color: var(--green); stroke: var(--green); }
+        .flow-grid { color: var(--green); stroke: var(--green); }
+        .flow-sale { color: var(--orange); stroke: var(--orange); }
+        .flow-battery { color: var(--violet); stroke: var(--violet); }
+        .flow-load, .flow-ev { color: var(--cyan); stroke: var(--cyan); }
+        .flow-junction { fill: #0c1f34; stroke: currentColor; stroke-width: 2; }
+        .forecast-panel { min-height: 300px; padding: 9px 12px 4px; }
+        .forecast-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+        .forecast-heading h3 { text-align: left; }
+        .forecast-legend { display: flex; flex-wrap: wrap; gap: 16px; color: #fff; font-size: 11px; font-weight: 900; }
+        .forecast-legend span:before { content: ""; display: inline-block; width: 22px; height: 4px; margin-right: 6px; vertical-align: middle; background: currentColor; }
+        .buy-key { color: var(--green); }
+        .sell-key { color: var(--orange); }
+        .solar-key { color: var(--yellow); }
+        .solar-key:before { height: 12px !important; border: 2px solid var(--yellow); background: rgba(255,218,76,.45) !important; }
+        .forecast-wrap { position: relative; min-width: 0; }
+        .forecast-chart { display: block; width: 100%; height: auto; min-height: 230px; overflow: visible; }
+        .chart-grid { stroke: rgba(142,170,197,.18); stroke-width: 1; stroke-dasharray: 3 5; }
+        .day-line { stroke: rgba(142,170,197,.38); stroke-width: 1.4; }
+        .day-label, .price-axis, .solar-axis, .axis-title, .now-label { fill: #a9b9ca; font-size: 12px; font-weight: 800; }
+        .axis-title { fill: var(--green); }
+        .solar-title { fill: var(--yellow); }
+        .forecast-solar-area { fill: url(#forecastSolarFill); }
+        .forecast-solar-line, .forecast-buy-line, .forecast-sell-line { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+        .forecast-solar-line { stroke: var(--yellow); stroke-width: 3; }
+        .forecast-buy-line { stroke: var(--green); stroke-width: 3; }
+        .forecast-sell-line { stroke: var(--orange); stroke-width: 3; }
+        .now-line { stroke: #fff; stroke-width: 1.5; stroke-dasharray: 4 4; }
+        .now-label { fill: #fff; font-size: 10px; }
+        .chart-hit { fill: transparent; pointer-events: all; }
+        .chart-tooltip { position: absolute; z-index: 5; min-width: 150px; padding: 7px 9px; border: 1px solid var(--outline-bright); color: #fff; background: rgba(3, 13, 24, .96); box-shadow: 0 8px 25px rgba(0,0,0,.45); font: 700 11px/1.55 "Segoe UI", sans-serif; pointer-events: none; transform: translate(-50%, -110%); }
+        .chart-tooltip b { color: var(--yellow); }
+        .status-strip { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--outline); color: #fff; font-size: clamp(10px, 1.2vw, 15px); font-weight: 900; letter-spacing: .6px; text-transform: uppercase; }
+        .status-strip span { padding: 6px 12px; text-align: center; }
+        .status-strip span + span { border-left: 1px solid var(--outline); }
+        .status-strip b { margin-left: 7px; color: var(--green); font-size: 1.25em; }
+
+        .secondary { display: grid; gap: 9px; }
+        .secondary details { border: 2px solid var(--outline); background: #0a1d31; }
+        .secondary summary { display: flex; align-items: center; gap: 8px; padding: 11px 13px; cursor: pointer; list-style: none; font-size: 14px; font-weight: 900; letter-spacing: .5px; text-transform: uppercase; }
+        .secondary summary::-webkit-details-marker { display: none; }
+        .secondary summary ha-icon { color: var(--cyan); --mdc-icon-size: 19px; }
+        .secondary summary i { margin-left: auto; color: var(--muted); font-size: 10px; font-style: normal; font-weight: 700; text-transform: none; }
+        .secondary summary:after { content: "＋"; margin-left: 4px; color: var(--cyan); }
+        .secondary details[open] summary:after { content: "−"; }
+        .secondary-body { padding: 0 12px 12px; border-top: 1px solid var(--outline); }
+        .secondary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .secondary h4 { margin: 10px 0 7px; color: var(--yellow); font-size: 12px; letter-spacing: .6px; text-transform: uppercase; }
+        .timeline, .decision-log { display: grid; gap: 7px; max-height: 340px; overflow: auto; }
+        .timeline-item { display: grid; grid-template-columns: 64px 8px minmax(0,1fr) auto; gap: 8px; padding: 7px; border: 1px solid var(--outline); background: #071727; }
+        .timeline-item time, .timeline-item b, .decision time { font-size: 10px; font-weight: 900; }
+        .timeline-item time small { display: block; color: var(--muted); }
+        .timeline-item > i { border-left: 3px solid var(--green); }
+        .timeline-item strong, .decision strong { font-size: 12px; }
+        .timeline-item p, .decision p { margin: 2px 0; color: #d8e2ec; font: 600 11px/1.35 "Segoe UI", sans-serif; }
+        .timeline-item b { color: var(--green); }
+        .decision { display: grid; grid-template-columns: 50px minmax(0,1fr); gap: 8px; padding: 7px; border: 1px solid var(--outline); background: #071727; }
+        .decision time { color: var(--orange); }
+        .decision small { color: var(--muted); font-size: 10px; }
+        .period-tabs { display: flex; gap: 3px; padding: 9px 0; overflow-x: auto; }
+        .period-tabs button { min-height: 32px; padding: 0 13px; border: 1px solid var(--outline); color: var(--muted); background: #071727; cursor: pointer; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+        .period-tabs button.selected { border-color: var(--cyan); color: #04111d; background: var(--cyan); }
+        .metric-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 7px; }
+        .metric { display: grid; grid-template-columns: 28px minmax(0,1fr); grid-template-rows: auto auto; align-items: center; gap: 0 7px; min-width: 0; padding: 8px; border: 1px solid var(--outline); background: #071727; }
+        .metric .icon-orb { grid-row: 1/3; color: var(--cyan); }
+        .metric .icon-orb ha-icon { --mdc-icon-size: 20px; }
+        .metric > span { overflow: hidden; color: var(--muted); font-size: 9px; font-weight: 800; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+        .metric > strong { font-size: 14px; white-space: nowrap; }
+        .control-grid, .extra-settings, .command-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; padding-top: 11px; }
+        .slider-row, .setting-row { display: grid; gap: 6px; min-width: 0; padding: 9px; border: 1px solid var(--outline); background: #071727; }
+        .slider-row > span, .setting-row > span { min-width: 0; }
+        .slider-row strong, .setting-row strong { display: block; font-size: 11px; }
+        .slider-row small, .setting-row small { display: block; color: var(--muted); font-size: 9px; }
+        .slider-value { color: var(--cyan); font-size: 11px; font-weight: 900; }
+        .slider-row input, .setting-row input { width: 100%; }
+        .setting-row input { min-height: 32px; padding: 5px; border: 1px solid var(--outline); color: var(--cyan); background: #03111e; }
+        .command { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 42px; padding: 7px; border: 1px solid var(--outline); color: #fff; background: #071727; cursor: pointer; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+        .command:hover { border-color: var(--cyan); background: #102e48; }
+        .command ha-icon { color: var(--cyan); --mdc-icon-size: 18px; }
+        .empty-state, .empty-chart { display: grid; place-items: center; min-height: 100px; color: var(--muted); font-size: 12px; text-align: center; }
+        .footer { color: #71869a; font-size: 10px; text-align: center; }
+
+        @keyframes sun-pulse { 50% { transform: scale(1.08); } }
+        @keyframes ray-spin { to { transform: rotate(360deg); transform-origin: center; } }
+        @keyframes twinkle { to { opacity: .3; } }
+        @keyframes cloud-drift { to { transform: translateX(5px); } }
+        @keyframes rain-fall { to { stroke-dashoffset: -6; } }
+        @keyframes snow-fall { to { transform: translateY(8px); opacity: .25; } }
+        @keyframes lightning-flash { 0%, 88%, 94%, 100% { opacity: 0; } 89%, 92% { opacity: 1; } }
+        @keyframes fog-shift { to { transform: translateX(8px); opacity: .45; } }
+        @keyframes wind-shift { to { transform: translateX(7px); opacity: .35; } }
+        @keyframes grid-live { to { stroke-dashoffset: -18; } }
+        @keyframes wave-run { to { stroke-dashoffset: -30; } }
+        @keyframes led-blink { 50% { opacity: .25; } }
+        @keyframes house-light { 50% { filter: drop-shadow(0 0 7px #ffdf48); } }
+        @keyframes battery-pulse { 50% { opacity: .76; } }
+        @keyframes ev-pulse { 50% { transform: scale(1.08); transform-origin: center; } }
+        @keyframes cable-charge { to { stroke-dashoffset: -18; } }
+        @keyframes feeder-flow { to { stroke-dashoffset: -32; } }
+
+        @container (max-width: 1050px) {
+          .energy-topology { column-gap: 48px; }
+          .metric-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+          .control-grid, .extra-settings, .command-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+        }
+        @container (max-width: 820px) {
+          .top-row { grid-template-columns: 1fr; }
+          .pv-summary { min-height: 120px; }
+          .pv-strings { grid-template-columns: repeat(2, minmax(0,1fr)); }
+          .energy-topology { grid-template-columns: 1fr 1fr; grid-template-areas: "inverter inverter" "grid house" "phase ev" "battery battery"; gap: 18px; padding: 10px 0; }
+          .flow-layer { display: none; }
+          .secondary-grid { grid-template-columns: 1fr; }
+          .status-strip { grid-template-columns: 1fr; }
+          .status-strip span + span { border-top: 1px solid var(--outline); border-left: 0; }
+        }
+        @container (max-width: 580px) {
+          .dashboard { padding: 8px; }
+          .command-bar { align-items: stretch; flex-direction: column; }
+          .command-status { display: grid; grid-template-columns: 1fr 1fr; }
+          .status-chip b { max-width: 150px; }
+          .pv-strings, .energy-topology { grid-template-columns: 1fr; }
+          .energy-topology { grid-template-areas: "inverter" "grid" "house" "battery" "ev" "phase"; }
+          .phase-module { min-height: 180px; }
+          .forecast-heading { align-items: flex-start; flex-direction: column; }
+          .forecast-chart { min-width: 680px; }
+          .forecast-wrap { overflow-x: auto; }
+          .metric-grid, .control-grid, .extra-settings, .command-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+        }
+        @container (max-width: 380px) {
+          .pv-strings, .metric-grid, .control-grid, .extra-settings, .command-grid { grid-template-columns: 1fr; }
+          .brand p, .secondary summary i { display: none; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          *, *:before, *:after { scroll-behavior: auto !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
+        }
+      </style>
+      <ha-card>
+        <div class="dashboard">
+          <header class="command-bar">
+            <div class="brand"><div class="brand-mark"><ha-icon icon="mdi:lightning-bolt"></ha-icon></div><div><h2>${this._escape(
+              this.config.title,
+            )}</h2><p>Illustrated live energy control</p></div></div>
+            <div class="command-status">
+              <div class="status-chip" data-entity="${this._escape(
+                this.config.reason_entity,
+              )}" role="button" tabindex="0"><span>System</span><b>${this._escape(reason)}</b></div>
+              <div class="mode-control"><label for="duhnergy-mode">Mode</label><select id="duhnergy-mode" data-select="select.duhnergy_mode">
+                ${["shadow", "auto", "off"]
+                  .map(
+                    (option) =>
+                      `<option value="${option}" ${mode === option ? "selected" : ""}>${this._label(
+                        option,
+                      )}</option>`,
+                  )
+                  .join("")}
+              </select></div>
+            </div>
+          </header>
+
+          ${this._illustratedOverview(planAttributes, forecastAttributes, statsAttributes)}
+
+          <section class="secondary">
+            <details data-section="operations">
+              <summary tabindex="0"><ha-icon icon="mdi:timeline-clock-outline"></ha-icon>Plan &amp; simulator<i>Existing planning and Shadow-mode activity</i></summary>
+              <div class="secondary-body secondary-grid">
+                <div><h4>Calculated plan</h4><div class="timeline">${this._timeline(
+                  timeline,
+                  "DKK",
+                )}</div></div>
+                <div><h4>Simulator log</h4><div class="decision-log">${this._simulator(
+                  logEntries,
+                )}</div></div>
+              </div>
+            </details>
+            <details data-section="stats">
+              <summary tabindex="0"><ha-icon icon="mdi:chart-box-outline"></ha-icon>Energy &amp; money statistics<i>Persistent tracked totals</i></summary>
+              <div class="secondary-body">${this._stats(statsAttributes)}</div>
+            </details>
+            <details data-section="controls">
+              <summary tabindex="0"><ha-icon icon="mdi:tune-variant"></ha-icon>Smart optimisations<i>Planning limits applied to every calculated plan</i></summary>
+              <div class="secondary-body"><div class="control-grid">
+                ${this._slider("Hard backup reserve", "number.duhnergy_hard_backup_reserve", "Battery floor preserved by every plan")}
+                ${this._slider("Export stop SOC", "number.duhnergy_export_stop_soc", "Stop battery export at this level")}
+                ${this._slider("EV battery stop SOC", "number.duhnergy_ev_battery_stop_soc", "Protect stored energy during EV charging")}
+                ${this._slider("Solar forecast margin", "number.duhnergy_solar_forecast_margin", "Discount forecast uncertainty")}
+                ${this._slider("Daily household demand", "number.duhnergy_household_daily_demand", "Expected consumption over 24 hours", "kWh")}
+                ${this._slider("Grid current limit", "number.duhnergy_grid_current_limit", "Shared import limit for EV charging", "A")}
+              </div></div>
+            </details>
+            <details data-section="manual">
+              <summary tabindex="0"><ha-icon icon="mdi:gesture-tap-button"></ha-icon>Manual controls<i>Guarded service operations</i></summary>
+              <div class="secondary-body"><div class="command-grid">
+                ${this._button("charge_battery_now", "Charge battery", "mdi:battery-charging-high")}
+                ${this._button("export_now", "Export now", "mdi:transmission-tower-export")}
+                ${this._button("hold_battery", "Hold battery", "mdi:battery-lock")}
+                ${this._button("pause_ev", "Pause EV", "mdi:pause-octagon-outline")}
+                ${this._button("ev_solar", "EV solar", "mdi:solar-power-variant")}
+                ${this._button("ev_battery", "EV battery", "mdi:home-battery-outline")}
+                ${this._button("ev_grid", "EV grid", "mdi:transmission-tower-import")}
+                ${this._button("resume_auto", "Resume Auto", "mdi:play-circle-outline")}
+              </div></div>
+            </details>
+            <details data-section="settings">
+              <summary tabindex="0"><ha-icon icon="mdi:cog-outline"></ha-icon>Settings<i>Integration-backed numeric controls</i></summary>
+              <div class="secondary-body"><div class="extra-settings">
+                ${this._setting("Battery capacity", "number.duhnergy_battery_capacity")}
+                ${this._setting("Solar forecast margin", "number.duhnergy_solar_forecast_margin")}
+                ${this._setting("Daily demand", "number.duhnergy_household_daily_demand")}
+                ${this._setting("Grid current limit", "number.duhnergy_grid_current_limit")}
+              </div></div>
+            </details>
+          </section>
+          <footer class="footer">${this._escape(status)} · Verify source mappings and signs in Shadow before enabling Auto</footer>
+        </div>
+      </ha-card>`;
+
+    this._bindEvents(openSections);
+    this._scheduleFlowDraw();
+  }
+
   _bindEvents(openSections) {
     this.shadowRoot.querySelectorAll("[data-entity]").forEach((element) => {
       const open = (event) => {
@@ -1251,6 +2184,27 @@ class DuhnergyCard extends HTMLElement {
     this.shadowRoot.querySelectorAll("details[data-section]").forEach((details) => {
       const remembered = openSections.get(details.dataset.section);
       details.open = remembered === undefined ? details.hasAttribute("open") : remembered;
+    });
+    const chart = this.shadowRoot.querySelector(".forecast-wrap");
+    const tooltip = chart?.querySelector(".chart-tooltip");
+    chart?.querySelectorAll("[data-chart-index]").forEach((hitArea) => {
+      const show = (event) => {
+        if (!tooltip) return;
+        const pointer = event.touches?.[0] || event;
+        const bounds = chart.getBoundingClientRect();
+        tooltip.innerHTML = `<b>${this._escape(hitArea.dataset.time)}</b><br>Buy ${
+          hitArea.dataset.buy
+        } DKK/kWh · Sell ${hitArea.dataset.sell} DKK/kWh<br>Solar ${hitArea.dataset.solar} kW`;
+        tooltip.style.left = `${Math.min(bounds.width - 80, Math.max(80, pointer.clientX - bounds.left))}px`;
+        tooltip.style.top = `${Math.max(55, pointer.clientY - bounds.top)}px`;
+        tooltip.hidden = false;
+      };
+      hitArea.addEventListener("pointermove", show);
+      hitArea.addEventListener("pointerenter", show);
+      hitArea.addEventListener("touchstart", show, { passive: true });
+      hitArea.addEventListener("pointerleave", () => {
+        if (tooltip) tooltip.hidden = true;
+      });
     });
   }
 
@@ -1328,9 +2282,17 @@ class DuhnergyCard extends HTMLElement {
         if (!start || !end) return "";
         const [from, to] = flow.reversed ? [end, start] : [start, end];
         const path = this._curve(from, to);
-        return `<path class="flow-track${flow.trunk ? " trunk" : ""}" d="${path}"></path>${
+        const intensity = Math.max(0.35, Math.min(1, Number(flow.power || 0) / 5000));
+        const junction = `<circle class="flow-junction flow-${flow.tone}" cx="${from[0]}" cy="${
+          from[1]
+        }" r="${3 + intensity * 2}"></circle>`;
+        return `<path class="flow-track-shadow" d="${path}"></path>
+          <path class="flow-track${flow.trunk ? " trunk" : ""}" d="${path}"></path>
+          <path class="flow-track-center" d="${path}"></path>${junction}${
           flow.active
-            ? `<path class="flow-live flow-${flow.tone}${flow.trunk ? " trunk" : ""}" d="${path}"></path>`
+            ? `<path class="flow-live flow-${flow.tone}${flow.trunk ? " trunk" : ""}" style="--flow-speed:${
+                flow.speed || 1.2
+              }s;opacity:${0.55 + intensity * 0.45}" d="${path}"></path>`
             : ""
         }`;
       })
@@ -1369,7 +2331,7 @@ class DuhnergyCardEditor extends HTMLElement {
   setConfig(config) {
     this.config = config;
     this.innerHTML =
-      "<p>Duhnergy automatically uses its integration entities. The optional title can be changed in YAML.</p>";
+      "<p>Duhnergy uses the integration entities automatically. Optional title, weather_entity, sun_entity, PV, phase, and daily-energy entity overrides can be configured in YAML.</p>";
   }
 
   set hass(hass) {
@@ -1389,7 +2351,7 @@ if (!window.customCards.some((card) => card.type === "duhnergy-card")) {
     type: "duhnergy-card",
     name: "Duhnergy!",
     description:
-      "Live energy topology, solar and price forecasts, persistent stats, decision log, settings, and guarded controls.",
+      "Illustrated live energy topology, animated sky and feeders, DKK price and solar forecast, stats, simulator, settings, and guarded controls.",
     preview: true,
   });
 }
