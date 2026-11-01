@@ -921,6 +921,22 @@ class DuhnergyCard extends HTMLElement {
     })} <small>${unit}</small></strong>`;
   }
 
+  _batteryFlowState({ battery, solar, house, grid, ev, gridImporting, convention }) {
+    const magnitude = Math.abs(battery);
+    const conventionalCharging = convention === "discharge" ? battery < 0 : battery > 0;
+    if (magnitude < 20) {
+      return { charging: false, discharging: false, inferred: false };
+    }
+    const gridSupply = gridImporting ? Math.abs(grid) : -Math.abs(grid);
+    const balanceBatterySupply = house + ev - solar - gridSupply;
+    const balanceError = Math.abs(Math.abs(balanceBatterySupply) - magnitude);
+    const reliableBalance =
+      Math.abs(balanceBatterySupply) > Math.max(150, magnitude * 0.25) &&
+      balanceError <= Math.max(500, magnitude * 0.55);
+    const charging = reliableBalance ? balanceBatterySupply < 0 : conventionalCharging;
+    return { charging, discharging: !charging, inferred: reliableBalance };
+  }
+
   _unifiedForecast(attributes) {
     const timestamps = Array.isArray(attributes?.timestamps) ? attributes.timestamps : [];
     const solar = Array.isArray(attributes?.solar_kw) ? attributes.solar_kw : [];
@@ -1031,10 +1047,18 @@ class DuhnergyCard extends HTMLElement {
     const grid = this._number("sensor.duhnergy_grid_net_power");
     const ev = this._number("sensor.duhnergy_ev_power");
     const soc = this._number("sensor.duhnergy_battery_state_of_charge");
-    const batteryCharging =
-      conventions.battery_power_positive === "discharge" ? battery < 0 : battery > 0;
     const gridImporting =
       conventions.grid_power_positive === "export" ? grid < 0 : grid > 0;
+    const batteryFlow = this._batteryFlowState({
+      battery,
+      solar,
+      house,
+      grid,
+      ev,
+      gridImporting,
+      convention: conventions.battery_power_positive || "charge",
+    });
+    const batteryCharging = batteryFlow.charging;
     const today = statsAttributes?.periods?.today || {};
     const value = (key) => {
       const number = Number(today[key]);
@@ -1076,8 +1100,18 @@ class DuhnergyCard extends HTMLElement {
         direction,
       };
     });
-    const batteryDischarging = Math.abs(battery) > 20 && !batteryCharging;
+    const batteryDischarging = batteryFlow.discharging;
     const gridSupplying = Math.abs(grid) > 20 && gridImporting;
+    const solarToHouse = Math.max(
+      0,
+      Math.min(
+        house,
+        solar -
+          (gridImporting ? 0 : Math.abs(grid)) -
+          (batteryCharging ? Math.abs(battery) : 0) -
+          ev,
+      ),
+    );
     const supplyCandidates = [
       {
         key: "grid",
@@ -1095,15 +1129,19 @@ class DuhnergyCard extends HTMLElement {
     supplyCandidates.push({
       key: "pv",
       label: "PV",
-      power: Math.max(0, house - supplyCandidates.reduce((total, source) => total + source.power, 0)),
+      power: solarToHouse,
       tone: "solar-source",
     });
+    const strongestSupply = supplyCandidates.sort((a, b) => b.power - a.power)[0];
     const mainHouseSource =
-      house > 20
-        ? supplyCandidates.sort((a, b) => b.power - a.power)[0]
-        : { key: "idle", label: "IDLE", power: 0, tone: "load" };
+      house <= 20
+        ? { key: "idle", label: "IDLE", power: 0, tone: "load" }
+        : strongestSupply.power > 20
+          ? strongestSupply
+          : { key: "idle", label: "UNKNOWN", power: 0, tone: "load" };
     const maximumFlow = Math.max(200, solar, house, Math.abs(grid), Math.abs(battery), ev);
-    const speed = (power) => Math.max(0.45, 2.4 - (Math.abs(power) / maximumFlow) * 1.8);
+    const speed = (power) =>
+      Math.max(3, 8 - Math.min(1, Math.abs(power) / maximumFlow) * 5);
     this._flowModel = [
       ...strings.map((item, index) => ({
         from: [`.pv-string:nth-child(${index + 1})`, "bottom", 0.5],
@@ -2003,7 +2041,7 @@ class DuhnergyCard extends HTMLElement {
         .flow-track-shadow { stroke: #020913; stroke-width: 10; opacity: .9; }
         .flow-track { stroke: var(--outline-bright); stroke-width: 6; opacity: .75; }
         .flow-track-center { fill: none; stroke: #0b1826; stroke-width: 2; stroke-dasharray: 2 7; }
-        .flow-live { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 4 12; filter: drop-shadow(0 0 3px currentColor); animation: feeder-flow var(--flow-speed, 1.2s) linear infinite; }
+        .flow-live { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 4 12; filter: drop-shadow(0 0 3px currentColor); animation: feeder-flow var(--flow-speed, 5s) linear infinite; }
         .flow-live.trunk { stroke-width: 5; stroke-dasharray: 6 11; }
         .flow-particle { fill: currentColor; filter: drop-shadow(0 0 4px currentColor); pointer-events: none; }
         .flow-solar { color: var(--green); stroke: var(--green); }
@@ -2411,10 +2449,10 @@ class DuhnergyCard extends HTMLElement {
           <path class="flow-track-center" d="${path}"></path>${junction}${
           flow.active
             ? `<path class="flow-live flow-${flow.tone}${flow.trunk ? " trunk" : ""}" style="--flow-speed:${
-                flow.speed || 1.2
+                flow.speed || 5
               }s;opacity:${0.55 + intensity * 0.45}" d="${path}"></path>
               <circle class="flow-particle flow-${flow.tone}" r="${2.5 + intensity}">
-                <animateMotion dur="${flow.speed || 1.2}s" repeatCount="indefinite" path="${path}"></animateMotion>
+                <animateMotion dur="${flow.speed || 5}s" repeatCount="indefinite" path="${path}"></animateMotion>
               </circle>`
             : ""
         }`;
