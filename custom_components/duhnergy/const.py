@@ -140,7 +140,7 @@ SETTING_RANGES = {
 
 UPDATE_INTERVAL_SECONDS = 60
 CARD_URL = "/duhnergy/duhnergy-card.js"
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 
 
 def effective_config(data: dict, options: dict) -> dict:

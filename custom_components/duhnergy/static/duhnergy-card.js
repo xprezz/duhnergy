@@ -1107,22 +1107,46 @@ class DuhnergyCard extends HTMLElement {
     this._flowModel = [
       ...strings.map((item, index) => ({
         from: [`.pv-string:nth-child(${index + 1})`, "bottom", 0.5],
-        to: [".pv-harness", "top", (index + 1) / 5],
+        to: [`.pv-tap:nth-child(${index + 1})`, "center", 0.5],
         tone: "solar",
         active: (item.power || 0) > 20,
         power: item.power || 0,
         speed: speed(item.power || 0),
-        route: "vertical",
+        route: "straight",
       })),
       {
-        from: [".pv-harness", "bottom", 0.5],
+        from: [".pv-tap:nth-child(1)", "center", 0.5],
+        to: [".pv-merge", "center", 0.5],
+        tone: "solar",
+        active: (strings[0].power || 0) + (strings[1].power || 0) > 20,
+        power: (strings[0].power || 0) + (strings[1].power || 0),
+        speed: speed((strings[0].power || 0) + (strings[1].power || 0)),
+        route: "straight",
+        noArrow: true,
+        noJunction: true,
+      },
+      {
+        from: [".pv-tap:nth-child(4)", "center", 0.5],
+        to: [".pv-merge", "center", 0.5],
+        tone: "solar",
+        active: (strings[2].power || 0) + (strings[3].power || 0) > 20,
+        power: (strings[2].power || 0) + (strings[3].power || 0),
+        speed: speed((strings[2].power || 0) + (strings[3].power || 0)),
+        route: "straight",
+        noArrow: true,
+        noJunction: true,
+      },
+      {
+        from: [".pv-merge", "center", 0.5],
         to: [".inverter-module", "top", 0.5],
         tone: "solar",
         active: solar > 20,
         power: solar,
         speed: speed(solar),
-        route: "vertical",
+        route: "straight",
         trunk: true,
+        noArrow: true,
+        noJunction: true,
       },
       {
         from: [".grid-module", "right", 0.5],
@@ -1201,7 +1225,10 @@ class DuhnergyCard extends HTMLElement {
       </div>
       <div class="energy-topology topology">
         <svg class="flow-layer" aria-hidden="true" focusable="false"></svg>
-        <div class="pv-harness" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <div class="pv-network" aria-hidden="true">
+          <i class="pv-tap"></i><i class="pv-tap"></i><i class="pv-tap"></i><i class="pv-tap"></i>
+          <b class="pv-merge"></b>
+        </div>
         <section class="tech-panel device-module grid-module" data-entity="sensor.duhnergy_grid_net_power" role="button" tabindex="0">
           <div class="device-art">${this._deviceArt("grid")}</div><div class="device-copy"><h3>GRID</h3><span class="${
             gridImporting ? "cyan" : "orange"
@@ -1905,9 +1932,13 @@ class DuhnergyCard extends HTMLElement {
           "grid inverter house"
           "phase battery ev"; gap: 72px 112px; min-height: 455px; padding: 42px 0 24px; }
         .flow-layer { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-        .pv-harness { position: absolute; z-index: 2; left: 50%; top: 4px; display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; width: 142px; height: 27px; padding: 4px 9px; border: 3px solid #41617d; border-radius: 4px; background: #061626; box-shadow: 0 0 0 2px #020912, 0 0 12px rgba(120,210,75,.22); transform: translateX(-50%); }
-        .pv-harness:before { content: ""; position: absolute; left: 9px; right: 9px; top: 50%; height: 4px; border-radius: 99px; background: var(--green); box-shadow: 0 0 6px rgba(120,210,75,.65); transform: translateY(-50%); }
-        .pv-harness i { position: relative; z-index: 1; justify-self: center; width: 8px; height: 8px; border: 2px solid var(--green); border-radius: 50%; background: #071727; }
+        .pv-network { position: absolute; z-index: 2; left: 12.5%; right: 12.5%; top: 10px; height: 12px; pointer-events: none; }
+        .pv-tap, .pv-merge { position: absolute; top: 50%; width: 8px; height: 8px; border: 2px solid var(--green); border-radius: 50%; background: #071727; box-shadow: 0 0 5px rgba(120,210,75,.55); transform: translate(-50%, -50%); }
+        .pv-tap:nth-child(1) { left: 0; }
+        .pv-tap:nth-child(2) { left: 33.333%; }
+        .pv-tap:nth-child(3) { left: 66.666%; }
+        .pv-tap:nth-child(4) { left: 100%; }
+        .pv-merge { left: 50%; width: 11px; height: 11px; background: var(--green); box-shadow: 0 0 8px rgba(120,210,75,.8); }
         .device-module, .phase-module { z-index: 1; min-height: 156px; padding: 12px; }
         .grid-module { grid-area: grid; }
         .inverter-module { grid-area: inverter; text-align: center; }
@@ -2091,7 +2122,7 @@ class DuhnergyCard extends HTMLElement {
           .pv-summary { min-height: 120px; }
           .pv-strings { grid-template-columns: repeat(2, minmax(0,1fr)); }
           .energy-topology { grid-template-columns: 1fr 1fr; grid-template-areas: "inverter inverter" "grid house" "phase ev" "battery battery"; gap: 18px; padding: 10px 0; }
-          .flow-layer, .pv-harness { display: none; }
+          .flow-layer, .pv-network { display: none; }
           .secondary-grid { grid-template-columns: 1fr; }
           .status-strip { grid-template-columns: 1fr; }
           .status-strip span + span { border-top: 1px solid var(--outline); border-left: 0; }
@@ -2338,6 +2369,9 @@ class DuhnergyCard extends HTMLElement {
     const [ax, ay] = from;
     const [bx, by] = to;
     const round = (value) => Math.round(value * 10) / 10;
+    if (flow.route === "straight") {
+      return `M${round(ax)},${round(ay)} L${round(bx)},${round(by)}`;
+    }
     if (flow.route === "vertical") {
       const direction = by >= ay ? 1 : -1;
       const laneDistance = Math.min(Math.abs(by - ay) / 2, 20 + index * 11);
@@ -2386,16 +2420,18 @@ class DuhnergyCard extends HTMLElement {
         const [from, to] = flow.reversed ? [end, start] : [start, end];
         const path = this._curve(from, to, flow, index);
         const intensity = Math.max(0.35, Math.min(1, Number(flow.power || 0) / 5000));
-        const junction = `<circle class="flow-junction flow-${flow.tone}" cx="${from[0]}" cy="${
-          from[1]
-        }" r="${3 + intensity * 2}"></circle>`;
+        const junction = flow.noJunction
+          ? ""
+          : `<circle class="flow-junction flow-${flow.tone}" cx="${from[0]}" cy="${
+              from[1]
+            }" r="${3 + intensity * 2}"></circle>`;
         return `<path class="flow-track-shadow" d="${path}"></path>
           <path class="flow-track${flow.trunk ? " trunk" : ""}" d="${path}"></path>
           <path class="flow-track-center" d="${path}"></path>${junction}${
           flow.active
-            ? `<path class="flow-live flow-${flow.tone}${flow.trunk ? " trunk" : ""}" marker-end="url(#flow-arrow-${
-                flow.tone
-              })" style="--flow-speed:${
+            ? `<path class="flow-live flow-${flow.tone}${flow.trunk ? " trunk" : ""}" ${
+                flow.noArrow ? "" : `marker-end="url(#flow-arrow-${flow.tone})"`
+              } style="--flow-speed:${
                 flow.speed || 1.2
               }s;opacity:${0.55 + intensity * 0.45}" d="${path}"></path>
               <circle class="flow-particle flow-${flow.tone}" r="${2.5 + intensity}">
