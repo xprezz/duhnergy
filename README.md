@@ -15,7 +15,7 @@ For a first installation:
 4. Go to **Settings → Devices & services → Add integration**, search for **Duhnergy!**, and complete the form.
 5. Keep **Mode** set to **Shadow** while checking the mappings, forecast, calculated timeline, and simulator log.
 
-To update to v0.3.8, open Duhnergy! in HACS, choose **Update/download**, restart Home Assistant, then hard-refresh the dashboard browser once so the `?v=0.3.8` card resource is loaded.
+To update to v0.4.0, open Duhnergy! in HACS, choose **Update/download**, restart Home Assistant, then hard-refresh the dashboard browser once so the `?v=0.4.0` card resource is loaded.
 
 The setup form is prefilled with known entity IDs for the target installation. Every source, Solis control, sign convention, currency, and planning setting can be changed later under **Settings → Devices & services → Duhnergy! → Configure**. The Easee device ID is derived from the selected charger status entity's entity-registry device and is never hardcoded.
 
@@ -28,7 +28,7 @@ type: custom:duhnergy-card
 title: Duhnergy!
 ```
 
-The v0.3.8 card is optimised for iPad landscape and other widescreen dashboards. It keeps its DOM stable across Home Assistant updates to avoid iPad scroll jumps, and uses a single transform-only feeder scheduler at the display's native animation cadence. It collapses to a single-column layout on narrow screens and includes:
+The v0.4.0 card is optimised for iPad landscape and other widescreen dashboards, with compact charcoal panels, fine outlines, and the mode/status bar below the live overview and forecast. It keeps its DOM stable across Home Assistant updates to avoid iPad scroll jumps, and uses a single transform-only feeder scheduler at the display's native animation cadence. It collapses to a single-column layout on narrow screens and includes:
 
 - An original illustrated technical dashboard drawn entirely with local HTML, CSS, and SVG.
 - A live day/night sky using `sun.sun`, sunrise/current/sunset positioning, a locally calculated lunar phase, and animated Home Assistant weather conditions.
@@ -36,11 +36,15 @@ The v0.3.8 card is optimised for iPad landscape and other widescreen dashboards.
 - Animated electrical feeder cables among illustrated grid, inverter, house, battery, and EV modules. Direction follows the configured grid and battery sign conventions, while speed scales with live power.
 - A dependency-free unified SVG forecast with solar area, buy/sell lines, dual scales, day separators, current-time marker, and mouse/touch tooltip for the available forecast horizon.
 - The existing calculated action timeline, persistent period stats, Shadow activity stream, guarded controls, and planning settings in expandable secondary panels.
-- Native Home Assistant more-info dialogs for every displayed entity-backed metric and node, including keyboard activation with Enter or Space.
+- Clickable entity-backed metrics and nodes, including keyboard activation with Enter or Space. Configurable metrics open an entity inspector with the underlying entity, a replacement selector, and an **Entity details** button for Home Assistant's native more-info dialog.
+- A compact daily summary of solar production, household consumption, import spend, and estimated savings (estimated self-consumption value plus export revenue). Savings are estimates, not a utility-bill comparison.
+- Status colours: idle PV is muted and active PV is yellow; grid exports are green, normal imports/balance blue, and imports of at least 3 kW red. House colours follow its primary supply; battery fill follows SOC (red at or below 20%, amber through 50%, green above), with blue charging and amber discharging outlines. Idle EV artwork is muted and charging pulses blue.
 - Range sliders for the primary smart optimisations, backed by the existing Duhnergy number entities.
 - Reduced-motion support and responsive layouts for landscape tablets, portrait tablets, and phones.
 
-Optional card-level entity overrides can be supplied in Lovelace YAML when an installation uses different direct Solis entity names:
+To change an entity, click its displayed metric, choose the replacement, and select **Save mapping**. Home Assistant administrators can save changes directly to a storage-mode dashboard. The card updates only its own configuration, including when nested in a stack or section; planner inputs and equipment controls are unchanged. Identical duplicate cards cannot be safely distinguished, so use **Edit dashboard → Edit card** for those. YAML dashboards, card previews, and unsupported containers also use the regular card editor/YAML instead of an in-place save. Non-administrators can inspect entity details but cannot save mappings.
+
+The card's visual editor (**Edit dashboard → Edit card**) provides entity selectors for all supported mappings. PV entries are ordered **South (1), West (2), North (3), East (4)**, and phases **L1, L2, L3**. Optional card-level entity overrides can also be supplied in Lovelace YAML:
 
 ```yaml
 type: custom:duhnergy-card
@@ -61,6 +65,14 @@ phase_entities:
 battery_charged_today_entity: sensor.solis_today_battery_charge_energy
 battery_discharged_today_entity: sensor.solis_today_battery_discharge_energy
 house_today_entity: sensor.solis_household_load_today_energy
+house_power_entity: sensor.duhnergy_house_power
+grid_power_entity: sensor.duhnergy_grid_net_power
+battery_power_entity: sensor.duhnergy_battery_power
+battery_soc_entity: sensor.duhnergy_battery_state_of_charge
+ev_power_entity: sensor.duhnergy_ev_power
+buy_price_entity: sensor.duhnergy_current_buy_price
+sell_price_entity: sensor.duhnergy_current_sell_price
+forecast_entity: sensor.duhnergy_24_hour_forecast
 ```
 
 If `weather_entity` is omitted, the card uses the integration's mapped weather entity, then automatically selects the only `weather.*` entity when exactly one is available. Missing optional PV strings, phases, and daily totals render as unavailable without breaking the dashboard.
@@ -83,6 +95,8 @@ Default sources:
 | Current sell price and forecast | `sensor.solar_real_sales_price` attribute `forecast: [{start, price}]` |
 
 Forecast timestamps may be Python `datetime` values supplied by Home Assistant or ISO strings. Duhnergy normalises them safely into 24 bounded, JSON-safe, hourly-aligned arrays while retaining missing values as `null`. `sensor.duhnergy_24_hour_forecast` exposes `timestamps`, `solar_kw`, `buy_price`, `sell_price`, current prices, min/max summaries, currency, and source entities. Dedicated current buy/sell and forecast solar energy sensors are also provided.
+
+The chart displays isolated current prices as visible points even when future prices are not yet available. Missing series are labelled explicitly, gaps remain gaps, zero/negative prices are retained, and labels/tooltips use the configured currency. If the default forecast sensor ID is absent, the card can identify a single renamed forecast sensor by its aligned attributes; if several match, choose the intended `forecast_entity` explicitly. An unavailable forecast still requires checking the mapped source's `prices`, `forecast`, or `time`/`pred_kw` attributes in the integration options; the chart does not invent future prices.
 
 The integration options let installations choose one to four solar surfaces and map each channel independently. The card omits unavailable channels, and each displayed surface remains independently clickable. Weather and today's cumulative production source are also selectable.
 

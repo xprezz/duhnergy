@@ -4,6 +4,11 @@ class DuhnergyCard extends HTMLElement {
   }
 
   static async getConfigElement() {
+    if (!customElements.get("ha-form") && window.loadCardHelpers) {
+      const helpers = await window.loadCardHelpers();
+      const nativeCard = helpers.createCardElement({ type: "entities", entities: [] });
+      await nativeCard.constructor.getConfigElement();
+    }
     return document.createElement("duhnergy-card-editor");
   }
 
@@ -13,6 +18,7 @@ class DuhnergyCard extends HTMLElement {
   }
 
   setConfig(config) {
+    this._rawConfig = config;
     this.config = {
       title: "Duhnergy!",
       status_entity: "sensor.duhnergy_status",
@@ -39,6 +45,13 @@ class DuhnergyCard extends HTMLElement {
       battery_charged_today_entity: "sensor.solis_today_battery_charge_energy",
       battery_discharged_today_entity: "sensor.solis_today_battery_discharge_energy",
       house_today_entity: "sensor.solis_household_load_today_energy",
+      house_power_entity: "sensor.duhnergy_house_power",
+      grid_power_entity: "sensor.duhnergy_grid_net_power",
+      battery_power_entity: "sensor.duhnergy_battery_power",
+      battery_soc_entity: "sensor.duhnergy_battery_state_of_charge",
+      ev_power_entity: "sensor.duhnergy_ev_power",
+      buy_price_entity: "sensor.duhnergy_current_buy_price",
+      sell_price_entity: "sensor.duhnergy_current_sell_price",
       ...config,
     };
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
@@ -51,7 +64,7 @@ class DuhnergyCard extends HTMLElement {
     const previousHass = this._hass;
     this._hass = hass;
     const active = this.shadowRoot?.activeElement;
-    if (active?.matches("select, input")) return;
+    if (active?.matches("select, input") || this._mappingDialog?.open) return;
     if (!previousHass || !this.shadowRoot?.querySelector("ha-card")) {
       this._render();
       return;
@@ -136,6 +149,7 @@ class DuhnergyCard extends HTMLElement {
   }
 
   _format(value, digits = 2, fallback = "—") {
+    if (value == null || value === "") return fallback;
     const number = Number(value);
     return Number.isFinite(number) ? number.toFixed(digits) : fallback;
   }
@@ -637,7 +651,7 @@ class DuhnergyCard extends HTMLElement {
     const result = [];
     let current = [];
     values.forEach((value, index) => {
-      if (value == null || !Number.isFinite(Number(value))) {
+      if (value == null || value === "" || !Number.isFinite(Number(value))) {
         if (current.length) result.push(current);
         current = [];
       } else {
@@ -886,7 +900,7 @@ class DuhnergyCard extends HTMLElement {
             sky.moon.waxing ? -8 + sky.moon.illumination * 16 : 8 - sky.moon.illumination * 16
           }" cy="0" rx="${Math.max(1, 8 * Math.abs(1 - sky.moon.illumination * 2))}" ry="8"></ellipse>
         </g>`;
-    return `<section class="tech-panel sky-panel" data-entity="${this._escape(
+    return `<section class="tech-panel sky-panel" data-mapping="weather_entity" data-entity="${this._escape(
       weatherEntity || this.config.sun_entity,
     )}" role="button" tabindex="0">
       <svg viewBox="0 0 200 88" aria-label="${this._escape(
@@ -923,7 +937,7 @@ class DuhnergyCard extends HTMLElement {
 
   _deviceArt(kind, soc = 0) {
     const art = {
-      grid: `<svg viewBox="0 0 100 100"><g class="pylon"><path d="M50 8L23 88M50 8l27 80M31 62h38M36 45h28M41 28h18M18 88h64M29 62l42 26M71 62L29 88M36 45l28 17M64 45L36 62"></path><path class="grid-spark" d="M13 31h23M64 31h23M9 50h27M64 50h27"></path></g></svg>`,
+      grid: `<svg viewBox="0 0 100 100"><g class="pylon"><path d="M44 12h12l23 77H21zM37 34h26M31 54h38M25 74h50M37 34l32 20M63 34L31 54M31 54l44 20M69 54L25 74M25 74l54 15M75 74L21 89M16 89h68"></path><path class="grid-spark" d="M22 30h56M16 49h68M22 30v7M78 30v7M16 49v7M84 49v7"></path></g></svg>`,
       inverter: `<svg viewBox="0 0 120 90"><rect class="machine" x="13" y="13" width="94" height="64" rx="8"></rect><rect class="screen" x="24" y="28" width="50" height="31" rx="3"></rect><path class="wave" d="M29 46c7 0 7-13 14-13s7 25 14 25 7-18 14-18"></path><circle class="led" cx="87" cy="34" r="4"></circle><path d="M82 52h14M82 60h14"></path></svg>`,
       house: `<svg viewBox="0 0 120 100"><path class="house-roof" d="M12 49L60 10l48 39-9 10-39-31-39 31z"></path><path class="house-body" d="M26 51v38h68V51L60 25z"></path><rect x="39" y="62" width="15" height="27"></rect><g class="house-window"><rect x="67" y="58" width="18" height="19"></rect><path d="M76 58v19M67 67h18"></path></g><path class="grass" d="M18 89h84"></path></svg>`,
       battery: `<svg viewBox="0 0 140 80"><rect class="battery-case" x="8" y="14" width="119" height="54" rx="8"></rect><path class="battery-tip" d="M127 30h8v22h-8"></path><rect class="battery-fill" x="15" y="21" width="${Math.max(
@@ -966,14 +980,21 @@ class DuhnergyCard extends HTMLElement {
     const sell = Array.isArray(attributes?.sell_price) ? attributes.sell_price : [];
     if (!timestamps.length) return this._emptyChart();
     const width = 1200;
-    const height = 285;
+    const height = 218;
     const left = 66;
     const right = 1142;
     const top = 24;
-    const bottom = 226;
+    const bottom = 162;
     const x = (index) => left + (index / Math.max(1, timestamps.length - 1)) * (right - left);
-    const prices = [...buy, ...sell].filter((value) => Number.isFinite(Number(value))).map(Number);
-    const solarValues = solar.filter((value) => Number.isFinite(Number(value))).map(Number);
+    const available = (values) => values.filter((value) => value != null && value !== "" && Number.isFinite(Number(value))).map(Number);
+    const prices = available([...buy, ...sell]);
+    const solarValues = available(solar);
+    const currency = attributes.currency || "DKK";
+    const missing = [
+      [buy, "Buy price"],
+      [sell, "Sell price"],
+      [solar, "Solar"],
+    ].filter(([values]) => !available(values).length).map(([, label]) => label);
     const minPrice = Math.min(0, ...prices);
     const maxPrice = Math.max(1, ...prices);
     const maxSolar = Math.max(1, ...solarValues);
@@ -984,7 +1005,9 @@ class DuhnergyCard extends HTMLElement {
       this._segments(values, x, yScale)
         .map(
           (segment) =>
-            `<path class="${className}" d="${segment
+            segment.length === 1
+              ? `<circle class="${className} forecast-point" cx="${segment[0][0]}" cy="${segment[0][1]}" r="4"></circle>`
+              : `<path class="${className}" d="${segment
               .map((point, index) => `${index ? "L" : "M"}${point[0].toFixed(1)},${point[1].toFixed(1)}`)
               .join(" ")}"></path>`,
         )
@@ -1021,6 +1044,10 @@ class DuhnergyCard extends HTMLElement {
           )}</text>`;
       })
       .join("");
+    const hourLabels = timestamps.map((stamp, index) => index % 6 === 0 || index === timestamps.length - 1
+      ? `<text class="day-label" x="${x(index)}" y="${bottom + 18}" text-anchor="middle">${this._escape(
+        this._time(stamp, { weekday: undefined }),
+      )}</text>` : "").join("");
     const now = Date.now();
     const first = new Date(timestamps[0]).getTime();
     const last = new Date(timestamps.at(-1)).getTime();
@@ -1041,9 +1068,10 @@ class DuhnergyCard extends HTMLElement {
       )
       .join("");
     return `<div class="forecast-wrap">
-      <svg class="forecast-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Solar and DKK price forecast">
+      ${missing.length ? `<p class="forecast-notice">${this._escape(missing.join(", "))} forecast unavailable. Check the mapped forecast sources in Duhnergy integration settings.</p>` : ""}
+      <svg class="forecast-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Solar and ${this._escape(currency)} price forecast">
         <defs><linearGradient id="forecastSolarFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd84d" stop-opacity=".72"></stop><stop offset="1" stop-color="#ffd84d" stop-opacity=".05"></stop></linearGradient></defs>
-        ${horizontalGrid}${dayLines}${solarAreas}${line(solar, solarY, "forecast-solar-line")}${line(
+        ${horizontalGrid}${dayLines}${hourLabels}${solarAreas}${line(solar, solarY, "forecast-solar-line")}${line(
           buy,
           priceY,
           "forecast-buy-line",
@@ -1053,22 +1081,37 @@ class DuhnergyCard extends HTMLElement {
             ? ""
             : `<line class="now-line" x1="${nowX}" y1="${top}" x2="${nowX}" y2="${bottom}"></line><text class="now-label" x="${nowX + 5}" y="${top + 10}">NOW</text>`
         }
-        <text class="axis-title" x="8" y="18">DKK/kWh</text><text class="axis-title solar-title" x="1144" y="18">kW</text>
+        <text class="axis-title" x="8" y="18">${this._escape(currency)}/kWh</text><text class="axis-title solar-title" x="1144" y="18">kW</text>
         ${hitAreas}
       </svg>
       <div class="chart-tooltip" hidden></div>
     </div>`;
   }
 
+  _forecastState() {
+    const configured = this._state(this.config.forecast_entity);
+    if (configured) return configured;
+    const candidates = Object.values(this._hass?.states || {}).filter((state) =>
+      Array.isArray(state.attributes?.timestamps) &&
+      Array.isArray(state.attributes?.buy_price) &&
+      Array.isArray(state.attributes?.solar_kw),
+    );
+    return candidates.length === 1 ? candidates[0] : undefined;
+  }
+
+  _displayPower(value) {
+    return value == null ? null : Math.abs(value);
+  }
+
   _illustratedOverview(planAttributes, forecastAttributes, statsAttributes) {
     const sources = planAttributes?.source_entities || {};
     const conventions = planAttributes?.conventions || {};
     const solar = this._entityNumber(this.config.pv_total_entity, this._number("sensor.duhnergy_solar_power"));
-    const house = this._number("sensor.duhnergy_house_power");
-    const battery = this._number("sensor.duhnergy_battery_power");
-    const grid = this._number("sensor.duhnergy_grid_net_power");
-    const ev = this._number("sensor.duhnergy_ev_power");
-    const soc = this._number("sensor.duhnergy_battery_state_of_charge");
+    const house = this._entityNumber(this.config.house_power_entity);
+    const battery = this._entityNumber(this.config.battery_power_entity);
+    const grid = this._entityNumber(this.config.grid_power_entity);
+    const ev = this._entityNumber(this.config.ev_power_entity);
+    const soc = this._entityNumber(this.config.battery_soc_entity);
     const gridImporting =
       conventions.grid_power_positive === "export" ? grid < 0 : grid > 0;
     const batteryFlow = this._batteryFlowState({
@@ -1086,20 +1129,19 @@ class DuhnergyCard extends HTMLElement {
       const number = Number(today[key]);
       return Number.isFinite(number) ? Math.max(0, number) : 0;
     };
-    const pvToday =
-      this._energy(this.config.pv_today_entity, null) ??
-      Number(planAttributes?.solar_today_energy_kwh) ??
-      value("solar_production_kwh");
+    const pvToday = this._energy(this.config.pv_today_entity, null) ??
+      planAttributes?.solar_today_energy_kwh ?? value("solar_production_kwh");
     const houseToday = this._energy(this.config.house_today_entity, null) ?? value("household_consumption_kwh");
     const batteryCharged =
       this._energy(this.config.battery_charged_today_entity, null) ?? value("battery_charged_kwh");
     const batteryDischarged =
       this._energy(this.config.battery_discharged_today_entity, null) ?? value("battery_discharged_kwh");
     const evToday = value("ev_charged_kwh");
-    const buyEntity = sources.import_price || "sensor.duhnergy_current_buy_price";
-    const sellEntity = sources.sale_price || "sensor.duhnergy_current_sell_price";
-    const buy = forecastAttributes?.current_buy_price;
-    const sell = forecastAttributes?.current_sell_price;
+    const buyEntity = this.config.buy_price_entity;
+    const sellEntity = this.config.sell_price_entity;
+    const buy = this._entityNumber(buyEntity, forecastAttributes?.current_buy_price);
+    const sell = this._entityNumber(sellEntity, forecastAttributes?.current_sell_price);
+    const currency = forecastAttributes?.currency || "DKK";
     const phaseEntities = Array.isArray(this.config.phase_entities) ? this.config.phase_entities : [];
     const phases = phaseEntities.slice(0, 3).map((entityId, index) => ({
       entityId,
@@ -1250,21 +1292,27 @@ class DuhnergyCard extends HTMLElement {
     return `<div class="technical-board">
       <div class="top-row">
         ${this._skyPanel(sources)}
-        <section class="tech-panel pv-summary" data-entity="${this._escape(
-          this.config.pv_today_entity,
-        )}" role="button" tabindex="0">
-          <span>PV PRODUCTION TODAY</span>
-          <strong>${this._format(pvToday, 1)} <small>kWh</small></strong>
-          <em>CURRENT ACTIVE</em>
-          <b>${Math.round(solar).toLocaleString()} W</b>
+        <section class="tech-panel pv-summary">
+          <div data-entity="${this._escape(this.config.pv_today_entity)}" role="button" tabindex="0">
+            <span>Solar today</span><strong>${this._format(pvToday, 1)} <small>kWh</small></strong>
+            <em>${this._format(solar, 0)} W now</em>
+          </div>
+          <div class="daily-summary">
+            <div data-entity="${this._escape(this.config.house_today_entity)}" role="button" tabindex="0"><span>Consumed</span><strong>${this._format(houseToday, 1)} <small>kWh</small></strong></div>
+            <div data-entity="${this._escape(this.config.stats_entity)}" role="button" tabindex="0"><span>Spend</span><strong>${this._format(today.import_cost, 2)} <small>${this._escape(currency)}</small></strong></div>
+            <div data-entity="${this._escape(this.config.stats_entity)}" role="button" tabindex="0" title="Estimated self-consumption value plus export revenue"><span>Est. savings</span><strong>${this._format(
+              today.self_consumption_value == null || today.export_revenue == null
+                ? null : today.self_consumption_value + today.export_revenue, 2,
+            )} <small>${this._escape(currency)}</small></strong></div>
+          </div>
         </section>
       </div>
       <div class="pv-strings">
         ${strings
           .map(
             ({ entityId, power, index, direction }) => `<section class="tech-panel pv-string ${
-              power == null ? "is-unavailable" : ""
-            }" data-entity="${this._escape(entityId || "")}" role="button" tabindex="0" style="--pv-level:${
+              power == null ? "is-unavailable" : power > 20 ? "pv-active" : "pv-idle"
+            }" data-entity="${this._escape(entityId || "")}" data-mapping="pv_entities:${index}" role="button" tabindex="0" style="--pv-level:${
               power == null ? 0 : Math.min(1, power / 1500)
             }">
               <h3>${direction} <small>PV ${index + 1}</small></h3>${this._panelIllustration(
@@ -1286,11 +1334,13 @@ class DuhnergyCard extends HTMLElement {
           <i class="pv-tap"></i><i class="pv-tap"></i><i class="pv-tap"></i><i class="pv-tap"></i>
           <b class="pv-merge"></b>
         </div>
-        <section class="tech-panel device-module grid-module" data-entity="sensor.duhnergy_grid_net_power" role="button" tabindex="0">
+        <section class="tech-panel device-module grid-module ${
+          Math.abs(grid) <= 20 ? "grid-neutral" : !gridImporting ? "grid-selling" : Math.abs(grid) >= 3000 ? "grid-heavy" : "grid-buying"
+        }" data-entity="${this._escape(this.config.grid_power_entity)}" role="button" tabindex="0">
           <div class="device-art">${this._deviceArt("grid")}</div><div class="device-copy"><h3>GRID</h3><span class="${
             gridImporting ? "cyan" : "orange"
-          }">${Math.abs(grid) < 20 ? "BALANCED" : gridImporting ? "BUYING" : "SELLING"}</span>${this._metricValue(
-            Math.abs(grid),
+          }">${grid == null ? "UNAVAILABLE" : Math.abs(grid) < 20 ? "BALANCED" : gridImporting ? "BUYING" : "SELLING"}</span>${this._metricValue(
+            this._displayPower(grid),
             0,
             "W",
           )}</div>
@@ -1304,7 +1354,7 @@ class DuhnergyCard extends HTMLElement {
             "W",
           )}
         </section>
-        <section class="tech-panel device-module house-module source-${mainHouseSource.key}" data-entity="sensor.duhnergy_house_power" role="button" tabindex="0">
+        <section class="tech-panel device-module house-module source-${mainHouseSource.key}" data-entity="${this._escape(this.config.house_power_entity)}" role="button" tabindex="0">
           <div class="device-art">${this._deviceArt("house")}</div><div class="device-copy"><h3>HOUSE</h3><span>ACTIVE USAGE</span>${this._metricValue(
             house,
             0,
@@ -1323,19 +1373,21 @@ class DuhnergyCard extends HTMLElement {
             <div data-entity="${this._escape(buyEntity)}" role="button" tabindex="0"><span>BUY PRICE</span><strong>${this._format(
               buy,
               2,
-            )} <small>DKK/kWh</small></strong></div>
+            )} <small>${this._escape(currency)}/kWh</small></strong></div>
             <div class="sell" data-entity="${this._escape(sellEntity)}" role="button" tabindex="0"><span>SELL PRICE</span><strong>${this._format(
               sell,
               2,
-            )} <small>DKK/kWh</small></strong></div>
+            )} <small>${this._escape(currency)}/kWh</small></strong></div>
           </div>
         </section>
-        <section class="tech-panel device-module battery-module" data-entity="sensor.duhnergy_battery_state_of_charge" role="button" tabindex="0">
+        <section class="tech-panel device-module battery-module soc-${soc <= 20 ? "low" : soc <= 50 ? "medium" : "high"} ${
+          Math.abs(battery) <= 20 ? "battery-idle" : batteryCharging ? "battery-charging" : "battery-discharging"
+        }" data-entity="${this._escape(this.config.battery_soc_entity)}" role="button" tabindex="0">
           <h3>BATTERY</h3><div class="battery-row"><div class="device-art">${this._deviceArt(
             "battery",
             soc,
-          )}</div><div><span>${Math.abs(battery) < 20 ? "IDLE" : batteryCharging ? "CHARGING" : "DISCHARGING"}</span>${this._metricValue(
-            Math.abs(battery),
+          )}</div><div data-entity="${this._escape(this.config.battery_power_entity)}" role="button" tabindex="0"><span>${battery == null ? "UNAVAILABLE" : Math.abs(battery) < 20 ? "IDLE" : batteryCharging ? "CHARGING" : "DISCHARGING"}</span>${this._metricValue(
+            this._displayPower(battery),
             0,
             "W",
           )}<em>SOC ${this._format(soc, 0)}%</em></div></div>
@@ -1349,14 +1401,14 @@ class DuhnergyCard extends HTMLElement {
         </section>
         <section class="tech-panel device-module ev-module ${
           ev > 20 ? "ev-active" : ""
-        }" data-entity="sensor.duhnergy_ev_power" role="button" tabindex="0">
+        }" data-entity="${this._escape(this.config.ev_power_entity)}" role="button" tabindex="0">
           <div class="device-art">${this._deviceArt("ev")}</div><div class="device-copy"><h3>EV CHARGER</h3><span>${
             ev > 20 ? "ACTIVE" : "IDLE"
           }</span>${this._metricValue(ev, 0, "W")}<em>TODAY ${this._format(evToday, 1)} kWh</em></div>
         </section>
       </div>
       <section class="tech-panel forecast-panel">
-        <div class="forecast-heading"><h3>PRICE &amp; SOLAR FORECAST</h3><div class="forecast-legend"><span class="buy-key">BUY PRICE</span><span class="sell-key">SELL PRICE</span><span class="solar-key">SOLAR FORECAST</span></div></div>
+        <div class="forecast-heading"><h3 data-entity="${this._escape(this._forecastState()?.entity_id || this.config.forecast_entity)}" data-mapping="forecast_entity" role="button" tabindex="0">PRICE &amp; SOLAR FORECAST</h3><div class="forecast-legend"><span class="buy-key">BUY PRICE</span><span class="sell-key">SELL PRICE</span><span class="solar-key">SOLAR FORECAST</span></div></div>
         ${this._unifiedForecast(forecastAttributes)}
       </section>
       <div class="status-strip">
@@ -1383,7 +1435,7 @@ class DuhnergyCard extends HTMLElement {
     const planState = this._state(this.config.plan_entity);
     const planAttributes = planState?.attributes || {};
     const timeline = Array.isArray(planAttributes.timeline) ? planAttributes.timeline : [];
-    const forecastAttributes = this._state(this.config.forecast_entity)?.attributes || {};
+    const forecastAttributes = this._forecastState()?.attributes || {};
     const statsAttributes = this._state(this.config.stats_entity)?.attributes || {};
     const logEntries = this._state(this.config.log_entity)?.attributes?.entries || [];
     const currency = forecastAttributes.currency || statsAttributes.currency || "DKK";
@@ -1882,7 +1934,7 @@ class DuhnergyCard extends HTMLElement {
     const reason = this._value(this.config.reason_entity, "Waiting for the first calculation");
     const mode = this._value("select.duhnergy_mode", "shadow");
     const planAttributes = this._state(this.config.plan_entity)?.attributes || {};
-    const forecastAttributes = this._state(this.config.forecast_entity)?.attributes || {};
+    const forecastAttributes = this._forecastState()?.attributes || {};
     const statsAttributes = this._state(this.config.stats_entity)?.attributes || {};
     const timeline = Array.isArray(planAttributes.timeline) ? planAttributes.timeline : [];
     const logEntries = this._state(this.config.log_entity)?.attributes?.entries || [];
@@ -1892,20 +1944,34 @@ class DuhnergyCard extends HTMLElement {
         :host {
           container-type: inline-size;
           display: block;
-          --navy: #08192b;
-          --navy-2: #0d2239;
-          --navy-3: #132c47;
-          --outline: #2c4764;
-          --outline-bright: #476784;
-          --text: #f4f7fb;
-          --muted: #a5b4c5;
-          --green: #78d24b;
-          --cyan: #67d5ff;
-          --orange: #f5a14a;
-          --yellow: #ffda4c;
-          --violet: #ab91ff;
+          --cp-bg: #17191c;
+          --cp-bg-elevated: #202327;
+          --cp-surface: #1c1f23;
+          --cp-surface-soft: #25292e;
+          --cp-border: #383d43;
+          --cp-border-strong: #616a73;
+          --cp-text: #e4e7e9;
+          --cp-text-muted: #a1a8af;
+          --cp-accent: #fd8ea1;
+          --cp-success: #a5cf98;
+          --cp-danger: #f87171;
+          --cp-warning: #e8c879;
+          --cp-link: #80b5dd;
+          --cp-shadow: 0 1px 2px #00000024;
+          --navy: var(--cp-bg);
+          --navy-2: var(--cp-bg-elevated);
+          --navy-3: var(--cp-surface-soft);
+          --outline: var(--cp-border);
+          --outline-bright: var(--cp-border-strong);
+          --text: var(--cp-text);
+          --muted: var(--cp-text-muted);
+          --green: var(--cp-success);
+          --cyan: var(--cp-link);
+          --orange: var(--cp-accent);
+          --yellow: var(--cp-warning);
+          --violet: var(--cp-success);
           color: var(--text);
-          font-family: "Arial Narrow", "Roboto Condensed", "Segoe UI", sans-serif;
+          font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
           font-variant-numeric: tabular-nums;
         }
         * { box-sizing: border-box; }
@@ -1917,9 +1983,7 @@ class DuhnergyCard extends HTMLElement {
           outline: 3px solid var(--cyan);
           outline-offset: 2px;
         }
-        .dashboard { display: grid; gap: 12px; padding: 14px; background:
-          radial-gradient(circle at 16% 2%, rgba(67, 133, 184, .13), transparent 24%),
-          linear-gradient(180deg, #071626, #091b2e 65%, #071626); }
+        .dashboard { display: grid; gap: 8px; padding: 12px; background: var(--cp-bg); }
         .command-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 12px; border: 2px solid var(--outline); background: #0a1d31; }
         .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
         .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; color: var(--yellow); border: 2px solid var(--outline-bright); background: #102944; }
@@ -1933,14 +1997,14 @@ class DuhnergyCard extends HTMLElement {
         .mode-control option { color: var(--text); background: var(--navy-2); }
         .status-chip b { display: block; max-width: 240px; overflow: hidden; color: var(--green); font-size: 12px; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 
-        .technical-board { display: grid; gap: 10px; min-width: 0; }
-        .tech-panel { position: relative; min-width: 0; overflow: hidden; border: 2px solid var(--outline); background: linear-gradient(180deg, rgba(16, 43, 70, .98), rgba(8, 26, 44, .98)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.018); }
-        .tech-panel:before, .tech-panel:after { content: ""; position: absolute; width: 9px; height: 9px; pointer-events: none; }
+        .technical-board { display: grid; gap: 8px; min-width: 0; }
+        .tech-panel { position: relative; min-width: 0; overflow: hidden; border: 1px solid var(--outline); border-radius: 10px; background: var(--cp-surface); box-shadow: var(--cp-shadow); }
+        .tech-panel:before, .tech-panel:after { content: none; }
         .tech-panel:before { left: -2px; top: -2px; border-left: 3px solid var(--outline-bright); border-top: 3px solid var(--outline-bright); }
         .tech-panel:after { right: -2px; bottom: -2px; border-right: 3px solid var(--outline-bright); border-bottom: 3px solid var(--outline-bright); }
-        .top-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(310px, 1.18fr); gap: 10px; }
-        .sky-panel { min-height: 145px; background: #0c2943; }
-        .sky-panel svg { display: block; width: 100%; height: 121px; }
+        .top-row { display: grid; grid-template-columns: minmax(200px, .7fr) minmax(0, 1.6fr); gap: 8px; }
+        .sky-panel { min-height: 74px; background: var(--cp-surface); }
+        .sky-panel svg { display: block; width: 100%; height: 54px; }
         .horizon-arc { fill: none; stroke: #e5e8ad; stroke-width: 1.2; stroke-dasharray: 2 2; }
         .horizon-ground { fill: #142942; opacity: .94; }
         .position-line { stroke: #e5e8ad; stroke-width: 1; stroke-dasharray: 2 2; }
@@ -1961,16 +2025,24 @@ class DuhnergyCard extends HTMLElement {
         .fog-lines path, .wind-lines path { fill: none; stroke: #d9eaf4; stroke-width: 1.3; stroke-linecap: round; }
         .fog-lines { animation: fog-shift 5s ease-in-out infinite alternate; opacity: .72; }
         .wind-lines { animation: wind-shift 2.2s linear infinite; }
-        .pv-summary { display: flex; flex-direction: column; justify-content: center; min-height: 145px; padding: 18px 25px; }
-        .pv-summary span { color: var(--green); font-size: clamp(18px, 2.2vw, 30px); font-weight: 950; letter-spacing: 1px; }
-        .pv-summary > strong { color: var(--green); font-size: clamp(38px, 5vw, 62px); line-height: 1; }
+        .pv-summary { display: grid; grid-template-columns: 1fr 2fr; align-items: center; gap: 16px; min-height: 74px; padding: 8px 12px; }
+        .pv-summary span { display: block; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .3px; }
+        .pv-summary strong { display: block; color: var(--text); font-size: clamp(18px, 2.2vw, 28px); font-weight: 600; line-height: 1.3; }
         .pv-summary small { font-size: .58em; }
-        .pv-summary em { margin-top: 7px; color: #fff; font-size: 15px; font-style: normal; font-weight: 900; letter-spacing: .7px; }
+        .pv-summary em { display: block; color: var(--green); font-size: 11px; font-style: normal; }
+        .daily-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+        .daily-summary strong { font-size: clamp(14px, 1.6vw, 21px); }
         .pv-summary b { font-size: clamp(25px, 3vw, 38px); line-height: 1; }
 
         .pv-strings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-        .pv-string { display: flex; flex-direction: column; min-height: 155px; padding: 8px 10px 10px; }
-        .pv-string h3, .device-module h3, .forecast-heading h3 { margin: 0; font-size: clamp(16px, 1.8vw, 25px); font-weight: 950; letter-spacing: .8px; text-align: center; }
+        .pv-string { display: grid; grid-template-columns: 56px minmax(0, 1fr); align-content: center; align-items: center; column-gap: 8px; min-height: 76px; padding: 8px; }
+        .pv-string .panel-art { grid-column: 1; grid-row: 1 / 3; height: 48px; }
+        .pv-string h3, .pv-string > div { grid-column: 2; }
+        .pv-string > div { flex-wrap: wrap; }
+        .pv-idle { filter: grayscale(1); }
+        .pv-active { border-color: var(--yellow); }
+        .pv-idle h3, .pv-idle strong { color: var(--muted); }
+        .pv-string h3, .device-module h3, .forecast-heading h3 { margin: 0; font-size: clamp(13px, 1.6vw, 19px); font-weight: 650; letter-spacing: .4px; text-align: center; }
         .pv-string h3 { color: var(--yellow); }
         .pv-string h3 small { color: #aebed0; font-size: .48em; letter-spacing: .7px; vertical-align: middle; }
         .panel-art { width: 100%; height: 92px; filter: drop-shadow(0 0 calc(2px + var(--pv-level) * 9px) rgba(255,218,76,calc(.08 + var(--pv-level) * .45))); }
@@ -1980,14 +2052,14 @@ class DuhnergyCard extends HTMLElement {
         .panel-stand { fill: none; stroke: #8392a0; stroke-width: 3; }
         .pv-string > div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
         .pv-string span, .device-module span, .phase-module span { color: #fff; font-size: 12px; font-weight: 900; letter-spacing: .6px; }
-        .pv-string strong { color: var(--green); font-size: clamp(20px, 2.2vw, 30px); }
+        .pv-string strong { color: var(--green); font-size: clamp(16px, 1.8vw, 23px); font-weight: 500; }
         .pv-string small, .device-module small, .phase-module small { color: inherit; font-size: .55em; }
         .is-unavailable { opacity: .6; filter: grayscale(.6); }
         .unavailable { color: var(--muted) !important; font-size: 12px !important; letter-spacing: .5px; }
 
-        .energy-topology { position: relative; display: grid; grid-template-columns: minmax(220px, .95fr) minmax(245px, 1.05fr) minmax(220px, .95fr); grid-template-areas:
+        .energy-topology { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 1fr); grid-template-areas:
           "grid inverter house"
-          "phase battery ev"; gap: 72px 112px; min-height: 455px; padding: 42px 0 24px; }
+          "phase battery ev"; gap: 20px 72px; min-height: 248px; padding: 24px 0 4px; }
         .flow-layer { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
         .pv-network { position: absolute; z-index: 2; left: 12.5%; right: 12.5%; top: 10px; height: 12px; pointer-events: none; }
         .pv-tap, .pv-merge { position: absolute; top: 50%; width: 8px; height: 8px; border: 2px solid var(--green); border-radius: 50%; background: #071727; box-shadow: 0 0 5px rgba(120,210,75,.55); transform: translate(-50%, -50%); }
@@ -1996,21 +2068,25 @@ class DuhnergyCard extends HTMLElement {
         .pv-tap:nth-child(3) { left: 66.666%; }
         .pv-tap:nth-child(4) { left: 100%; }
         .pv-merge { left: 50%; width: 11px; height: 11px; background: var(--green); box-shadow: 0 0 8px rgba(120,210,75,.8); }
-        .device-module, .phase-module { z-index: 1; min-height: 156px; padding: 12px; }
+        .device-module, .phase-module { z-index: 1; min-height: 92px; padding: 8px; }
         .grid-module { grid-area: grid; }
         .inverter-module { grid-area: inverter; text-align: center; }
         .house-module { grid-area: house; }
         .phase-module { grid-area: phase; }
         .battery-module { grid-area: battery; }
         .ev-module { grid-area: ev; }
-        .device-module { display: flex; align-items: center; justify-content: center; gap: 10px; }
-        .inverter-module, .battery-module { flex-direction: column; }
-        .device-art { flex: 0 1 132px; min-width: 88px; color: #d7e1e9; }
-        .device-art svg { display: block; width: 100%; max-height: 98px; overflow: visible; }
+        .device-module { display: flex; align-items: center; justify-content: center; gap: 4px; }
+        .battery-module { flex-direction: column; }
+        .inverter-module { display: grid; grid-template-columns: 64px auto; column-gap: 8px; align-content: center; text-align: left; }
+        .inverter-module .device-art { grid-column: 1; grid-row: 1 / 4; }
+        .inverter-module h3, .inverter-module > span, .inverter-module > strong { grid-column: 2; text-align: left; }
+        .device-art { flex: 0 1 72px; min-width: 46px; color: var(--muted); }
+        .device-art svg { display: block; width: 100%; max-height: 48px; overflow: visible; }
+        .inverter-module .device-art { flex-basis: auto; width: 64px; }
         .device-copy { min-width: 0; }
         .device-copy h3 { text-align: left; }
-        .device-module strong { display: block; color: var(--cyan); font-size: clamp(22px, 2.35vw, 34px); line-height: 1.02; }
-        .device-module em { display: block; margin-top: 5px; color: #fff; font-size: 12px; font-style: normal; font-weight: 900; }
+        .device-module strong { display: block; color: var(--text); font-size: clamp(20px, 2.1vw, 28px); font-weight: 500; line-height: 1.2; }
+        .device-module em { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; font-style: normal; font-weight: 500; }
         .device-module .orange, .price-values .sell strong { color: var(--orange); }
         .device-module .cyan { color: var(--cyan); }
         .pylon path { fill: none; stroke: #a5b5c7; stroke-width: 4; }
@@ -2034,13 +2110,13 @@ class DuhnergyCard extends HTMLElement {
         .house-module.source-battery .house-roof { fill: #58ad50; }
         .house-module.source-battery .house-body { fill: #91d07a; }
         .house-module.source-battery .house-window rect { fill: #d9f5ad; }
-        .battery-row { display: grid; grid-template-columns: minmax(120px, 1fr) auto; align-items: center; gap: 8px; width: 100%; }
+        .battery-row { display: grid; grid-template-columns: minmax(60px, 1fr) auto; align-items: center; gap: 8px; width: 100%; }
         .battery-case { fill: #6e7b88; stroke: #cbd4dc; stroke-width: 4; }
         .battery-tip { fill: #8b99a5; }
         .battery-fill { fill: var(--green); }
         .battery-bolt { fill: #b6ee62; }
-        .battery-totals { display: grid; grid-template-columns: 1fr 1fr; width: 100%; padding-top: 8px; border-top: 1px solid var(--outline); }
-        .battery-totals span { padding: 0 7px; color: var(--green); font-size: 10px; }
+        .battery-totals { display: grid; grid-template-columns: 1fr 1fr; width: 100%; padding-top: 4px; border-top: 1px solid var(--outline); }
+        .battery-totals span { padding: 0 7px; color: var(--green); font-size: 8px; }
         .battery-totals span + span { border-left: 1px solid var(--outline); color: #fff; }
         .battery-totals b { display: block; font-size: 15px; }
         .car { fill: #7bd7ff; stroke: #071421; stroke-width: 4; }
@@ -2074,7 +2150,7 @@ class DuhnergyCard extends HTMLElement {
         .flow-solar-source { color: var(--yellow); stroke: var(--yellow); }
         .flow-battery-source { color: var(--green); stroke: var(--green); }
         .flow-junction { fill: #0c1f34; stroke: currentColor; stroke-width: 2; }
-        .forecast-panel { min-height: 300px; padding: 9px 12px 4px; }
+        .forecast-panel { min-height: 164px; padding: 8px 12px 4px; }
         .forecast-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
         .forecast-heading h3 { text-align: left; }
         .forecast-legend { display: flex; flex-wrap: wrap; gap: 16px; color: #fff; font-size: 11px; font-weight: 900; }
@@ -2084,7 +2160,8 @@ class DuhnergyCard extends HTMLElement {
         .solar-key { color: var(--yellow); }
         .solar-key:before { height: 12px !important; border: 2px solid var(--yellow); background: rgba(255,218,76,.45) !important; }
         .forecast-wrap { position: relative; min-width: 0; }
-        .forecast-chart { display: block; width: 100%; height: auto; min-height: 230px; overflow: visible; }
+        .forecast-chart { display: block; width: 100%; height: 130px; overflow: visible; }
+        .forecast-notice { margin: 4px 0; color: var(--muted); font-size: 11px; }
         .chart-grid { stroke: rgba(142,170,197,.18); stroke-width: 1; stroke-dasharray: 3 5; }
         .day-line { stroke: rgba(142,170,197,.38); stroke-width: 1.4; }
         .day-label, .price-axis, .solar-axis, .axis-title, .now-label { fill: #a9b9ca; font-size: 12px; font-weight: 800; }
@@ -2162,13 +2239,13 @@ class DuhnergyCard extends HTMLElement {
         @keyframes ev-pulse { 50% { transform: scale(1.08); transform-origin: center; } }
 
         @container (max-width: 1050px) {
-          .energy-topology { column-gap: 70px; }
+          .energy-topology { column-gap: 40px; }
           .metric-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
           .control-grid, .extra-settings, .command-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
         }
         @container (max-width: 820px) {
           .top-row { grid-template-columns: 1fr; }
-          .pv-summary { min-height: 120px; }
+          .pv-summary { min-height: 86px; }
           .pv-strings { grid-template-columns: repeat(2, minmax(0,1fr)); }
           .energy-topology { grid-template-columns: 1fr 1fr; grid-template-areas: "inverter inverter" "grid house" "phase ev" "battery battery"; gap: 18px; padding: 10px 0; }
           .flow-layer, .pv-network { display: none; }
@@ -2187,6 +2264,7 @@ class DuhnergyCard extends HTMLElement {
           .forecast-heading { align-items: flex-start; flex-direction: column; }
           .forecast-chart { min-width: 680px; }
           .forecast-wrap { overflow-x: auto; }
+          .pv-summary { grid-template-columns: 1fr; gap: 8px; }
           .metric-grid, .control-grid, .extra-settings, .command-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
         }
         @container (max-width: 380px) {
@@ -2197,9 +2275,59 @@ class DuhnergyCard extends HTMLElement {
           *, *:before, *:after { scroll-behavior: auto !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
           .flow-marker { display: none; }
         }
+        .command-bar, .secondary details { border: 1px solid var(--outline); border-radius: 10px; background: var(--cp-surface); }
+        .mode-control, .status-chip, .brand-mark, .metric, .slider-row, .setting-row, .command, .timeline-item, .decision, .period-tabs button { background: var(--cp-surface-soft); border-color: var(--outline); border-radius: 6px; }
+        .brand h2 { color: var(--text); font-size: 18px; font-weight: 600; text-transform: none; }
+        .brand p { font-size: 9px; font-weight: 500; }
+        .sky-labels { height: 20px; background: var(--cp-surface-soft); }
+        .sky-labels span, .sky-labels strong { color: var(--muted); font-size: 10px; font-weight: 500; }
+        .pv-string h3 { text-align: left; }
+        .pv-string span, .device-module span, .phase-module span { color: var(--muted); font-size: 10px; font-weight: 500; }
+        .grid-module { --grid-tone: var(--cyan); }
+        .grid-selling { --grid-tone: var(--green); }
+        .grid-heavy { --grid-tone: var(--cp-danger); }
+        .grid-module strong, .grid-module .device-copy span { color: var(--grid-tone); }
+        .grid-module .pylon path { stroke: var(--grid-tone); stroke-width: 2; }
+        .grid-module .pylon .grid-spark { stroke-dasharray: none; }
+        .house-module.source-grid { border-color: var(--cyan); }
+        .house-module.source-pv { border-color: var(--yellow); }
+        .house-module.source-battery { border-color: var(--green); }
+        .soc-low { --soc-tone: var(--cp-danger); }
+        .soc-medium { --soc-tone: var(--yellow); }
+        .soc-high { --soc-tone: var(--green); }
+        .battery-fill { fill: var(--soc-tone); opacity: .7; }
+        .battery-bolt { fill: var(--text); opacity: .7; }
+        .battery-charging { border-color: var(--cyan); }
+        .battery-discharging { border-color: var(--yellow); }
+        .ev-module:not(.ev-active) .device-art { filter: grayscale(1); opacity: .5; }
+        .ev-active { border-color: var(--cyan); }
+        .ev-active .car { fill: var(--cyan); animation: ev-pulse 1.6s ease-in-out infinite; }
+        .battery-totals span { font-size: 8px; }
+        .battery-module h3 { font-size: 13px; line-height: 16px; }
+        .forecast-chart .day-label, .forecast-chart .price-axis, .forecast-chart .solar-axis, .forecast-chart .axis-title { font-size: 15px; }
+        .battery-totals span, .battery-totals b, .phase-values strong, .price-values strong { font-weight: 500; }
+        .battery-totals b { font-size: 13px; }
+        .flow-track-shadow { stroke: var(--cp-bg); stroke-width: 5; }
+        .flow-track { stroke: var(--outline); stroke-width: 2; }
+        .flow-track-center { stroke: var(--outline); stroke-width: 1; }
+        .flow-solar, .flow-sale { color: var(--green); stroke: var(--green); }
+        .flow-grid, .flow-ev { color: var(--cyan); stroke: var(--cyan); }
+        .status-strip { color: var(--muted); font-size: 10px; font-weight: 500; }
+        .status-strip b { font-size: 11px; font-weight: 600; }
+        .secondary summary { padding: 10px 12px; font-size: 12px; font-weight: 600; text-transform: none; }
+        .mapping-dialog { width: min(460px, calc(100vw - 32px)); padding: 20px; border: 1px solid var(--outline); border-radius: 16px; color: var(--text); background: var(--cp-surface); box-shadow: var(--cp-shadow); }
+        .mapping-dialog::backdrop { background: var(--cp-bg); opacity: .8; }
+        .mapping-dialog h3 { margin: 0 0 12px; }
+        .mapping-dialog label { display: grid; gap: 8px; margin: 12px 0; font-size: 12px; }
+        .mapping-dialog select { width: 100%; min-height: 40px; color: var(--text); background: var(--cp-surface-soft); border: 1px solid var(--outline); border-radius: 6px; }
+        .mapping-dialog p, .mapping-dialog code { font-size: 12px; overflow-wrap: anywhere; }
+        .mapping-dialog .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+        .mapping-dialog button { min-height: 40px; padding: 8px 12px; border: 1px solid var(--outline); border-radius: 6px; background: var(--cp-surface-soft); cursor: pointer; }
+        .mapping-error { color: var(--cp-danger); }
       </style>
       <ha-card>
         <div class="dashboard">
+          ${this._illustratedOverview(planAttributes, forecastAttributes, statsAttributes)}
           <header class="command-bar">
             <div class="brand"><div class="brand-mark"><ha-icon icon="mdi:lightning-bolt"></ha-icon></div><div><h2>${this._escape(
               this.config.title,
@@ -2220,8 +2348,6 @@ class DuhnergyCard extends HTMLElement {
               </select></div>
             </div>
           </header>
-
-          ${this._illustratedOverview(planAttributes, forecastAttributes, statsAttributes)}
 
           <section class="secondary">
             <details data-section="operations">
@@ -2284,6 +2410,7 @@ class DuhnergyCard extends HTMLElement {
   }
 
   _patchShadow(markup) {
+    if (this._mappingDialog?.open) return;
     const template = document.createElement("template");
     template.innerHTML = markup;
     if (!this.shadowRoot.firstChild) {
@@ -2362,6 +2489,7 @@ class DuhnergyCard extends HTMLElement {
     };
     add(this.config);
     add(this._state(this.config.plan_entity)?.attributes?.source_entities);
+    add(this._forecastState()?.entity_id);
     this.shadowRoot
       .querySelectorAll("[data-entity], [data-button], [data-number], [data-range], [data-select], [data-toggle]")
       .forEach((element) => Object.values(element.dataset).forEach(add));
@@ -2386,14 +2514,16 @@ class DuhnergyCard extends HTMLElement {
         const open = (event) => {
           if (event?.target?.closest?.("button, input, select, summary")) return;
           event?.stopPropagation();
-          this._openMoreInfo(element.dataset.entity);
+          this._openEntityMapping(element.dataset.entity, element.dataset.mapping);
         };
         element.addEventListener("click", open);
         element.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") {
+          if ((event.key === "Enter" || event.key === " ") &&
+              !event.target?.closest?.("button, input, select, summary") &&
+              event.target?.closest?.("[data-entity]") === element) {
             event.preventDefault();
             event.stopPropagation();
-            this._openMoreInfo(element.dataset.entity);
+            this._openEntityMapping(element.dataset.entity, element.dataset.mapping);
           }
         });
       });
@@ -2469,7 +2599,7 @@ class DuhnergyCard extends HTMLElement {
           const bounds = chart.getBoundingClientRect();
           tooltip.innerHTML = `<b>${this._escape(hitArea.dataset.time)}</b><br>Buy ${
             hitArea.dataset.buy
-          } DKK/kWh · Sell ${hitArea.dataset.sell} DKK/kWh<br>Solar ${
+          } ${this._escape(this._forecastState()?.attributes?.currency || "DKK")}/kWh · Sell ${hitArea.dataset.sell} ${this._escape(this._forecastState()?.attributes?.currency || "DKK")}/kWh<br>Solar ${
             hitArea.dataset.solar
           } kW`;
           tooltip.style.left = `${Math.min(
@@ -2499,6 +2629,130 @@ class DuhnergyCard extends HTMLElement {
         composed: true,
       }),
     );
+  }
+
+  _mappingOptions(entityId, mapping) {
+    const options = [];
+    Object.entries(this.config).forEach(([key, value]) => {
+      if (typeof value === "string" && key.endsWith("_entity") &&
+          (value === entityId || key === mapping)) {
+        options.push({ key, label: this._label(key.replace(/_entity$/, "")), value: value || entityId });
+      } else if (Array.isArray(value)) {
+        value.forEach((item, index) => {
+          if (item === entityId || `${key}:${index}` === mapping) {
+            options.push({ key: `${key}:${index}`, label: `${this._label(key)} ${index + 1}`, value: item });
+          }
+        });
+      }
+    });
+    return options;
+  }
+
+  _dashboardContext() {
+    let node = this;
+    while (node) {
+      if (node.lovelace?.saveConfig && node.lovelace?.config) return node.lovelace;
+      node = node.parentNode || node.host;
+    }
+    return null;
+  }
+
+  async _saveEntityMapping(mapping, entityId) {
+    if (!this._hass?.user?.is_admin) throw new Error("Only a Home Assistant administrator can change dashboard mappings.");
+    if (!this._state(entityId)) throw new Error("Select an existing Home Assistant entity.");
+    if (!this._mappingOptions(entityId, mapping).some((option) => option.key === mapping)) {
+      throw new Error("Select a supported dashboard mapping.");
+    }
+    const dashboard = this._dashboardContext();
+    if (!dashboard || dashboard.mode === "yaml" || this.preview) {
+      throw new Error("Use Edit dashboard > Edit card to save this mapping. YAML dashboards must be updated in YAML.");
+    }
+    const matches = [];
+    const find = (value, path = []) => {
+      if (!value || typeof value !== "object") return;
+      if (value.type === "custom:duhnergy-card" &&
+          JSON.stringify(value) === JSON.stringify(this._rawConfig)) {
+        matches.push(path);
+        return;
+      }
+      Object.entries(value).forEach(([key, child]) => find(child, [...path, key]));
+    };
+    find(dashboard.config);
+    if (matches.length !== 1) {
+      throw new Error("This card could not be uniquely identified. Use Edit dashboard > Edit card to change its mappings.");
+    }
+    const [key, index] = mapping.split(":");
+    const nextCard = { ...this._rawConfig };
+    if (index === undefined) nextCard[key] = entityId;
+    else {
+      nextCard[key] = [...this.config[key]];
+      nextCard[key][Number(index)] = entityId;
+    }
+    const nextDashboard = JSON.parse(JSON.stringify(dashboard.config));
+    const path = matches[0];
+    let parent = nextDashboard;
+    path.slice(0, -1).forEach((part) => { parent = parent[part]; });
+    parent[path.at(-1)] = nextCard;
+    await dashboard.saveConfig(nextDashboard);
+    this.setConfig(nextCard);
+  }
+
+  _openEntityMapping(entityId, mapping) {
+    const options = this._mappingOptions(entityId, mapping);
+    if (!options.length) {
+      this._openMoreInfo(entityId);
+      return;
+    }
+    this._mappingDialog?.remove();
+    const dialog = document.createElement("dialog");
+    dialog.className = "mapping-dialog";
+    dialog.setAttribute("aria-label", "Dashboard entity mapping");
+    const entities = Object.keys(this._hass?.states || {}).sort();
+    dialog.innerHTML = `<h3>Dashboard entity</h3><code>${this._escape(entityId || "Not configured")}</code>
+      <label>Displayed metric<select data-mapping-field>${options.map((option) =>
+        `<option value="${this._escape(option.key)}">${this._escape(option.label)}</option>`).join("")}</select></label>
+      <label>Entity<select data-mapping-entity>${entities.map((id) =>
+        `<option value="${this._escape(id)}">${this._escape(this._state(id)?.attributes?.friendly_name || id)} (${this._escape(id)})</option>`).join("")}</select></label>
+      <p>Changes affect this dashboard card only, not the planner or equipment controls. Shared changes are saved to the dashboard.</p>
+      <p class="mapping-error" role="alert"></p>
+      <div class="actions"><button type="button" data-details>Entity details</button><button type="button" data-save>Save mapping</button><button type="button" data-close>Cancel</button></div>`;
+    this.shadowRoot.append(dialog);
+    this._mappingDialog = dialog;
+    const field = dialog.querySelector("[data-mapping-field]");
+    const selector = dialog.querySelector("[data-mapping-entity]");
+    const save = dialog.querySelector("[data-save]");
+    const error = dialog.querySelector(".mapping-error");
+    const update = () => { selector.value = options.find((option) => option.key === field.value)?.value || ""; };
+    update();
+    field.addEventListener("change", update);
+    dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
+    dialog.querySelector("[data-details]").addEventListener("click", () => {
+      const selected = selector.value;
+      dialog.close();
+      this._openMoreInfo(selected);
+    });
+    if (!this._hass?.user?.is_admin) {
+      save.disabled = true;
+      error.textContent = "Only administrators can change dashboard mappings.";
+    }
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+      error.textContent = "";
+      try {
+        await this._saveEntityMapping(field.value, selector.value);
+        dialog.close();
+      } catch (err) {
+        error.textContent = err.message;
+      } finally {
+        save.disabled = false;
+      }
+    });
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      this._mappingDialog = null;
+      this._render();
+    });
+    dialog.showModal();
   }
 
   connectedCallback() {
@@ -2806,12 +3060,48 @@ class DuhnergyCard extends HTMLElement {
 class DuhnergyCardEditor extends HTMLElement {
   setConfig(config) {
     this.config = config;
-    this.innerHTML =
-      "<p>Duhnergy uses the integration entities automatically. Optional title, weather_entity, sun_entity, PV, phase, and daily-energy entity overrides can be configured in YAML.</p>";
+    this._render();
   }
 
   set hass(hass) {
     this._hass = hass;
+    this._render();
+  }
+
+  _render() {
+    if (!this.config || !this._hass) return;
+    if (!this._form) {
+      this._form = document.createElement("ha-form");
+      this._form.computeLabel = (schema) => schema.name.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+      this._form.schema = [
+        { name: "title", selector: { text: {} } },
+        ...[
+          "status_entity", "reason_entity", "plan_entity", "forecast_entity", "stats_entity",
+          "log_entity", "weather_entity", "sun_entity", "pv_total_entity", "pv_today_entity",
+          "house_power_entity", "house_today_entity", "grid_power_entity", "battery_power_entity",
+          "battery_soc_entity", "battery_charged_today_entity", "battery_discharged_today_entity",
+          "ev_power_entity", "buy_price_entity", "sell_price_entity",
+        ].map((name) => ({ name, selector: { entity: {} } })),
+        { name: "pv_entities", selector: { entity: { multiple: true } } },
+        { name: "phase_entities", selector: { entity: { multiple: true } } },
+      ];
+      this._form.addEventListener("value-changed", (event) => {
+        event.stopPropagation();
+        const config = { ...this.config, ...event.detail.value };
+        Object.keys(config).forEach((key) => {
+          if (config[key] === "") delete config[key];
+        });
+        this.config = config;
+        this.dispatchEvent(new CustomEvent("config-changed", {
+          detail: { config }, bubbles: true, composed: true,
+        }));
+      });
+      const help = document.createElement("p");
+      help.textContent = "Choose dashboard entities below. PV order: 1 South, 2 West, 3 North, 4 East. Phase order: L1, L2, L3. These mappings do not change planner inputs; configure those in the integration options.";
+      this.append(help, this._form);
+    }
+    this._form.hass = this._hass;
+    this._form.data = this.config;
   }
 }
 
